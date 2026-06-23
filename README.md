@@ -1,4 +1,4 @@
-# nuclear-learning
+# nuclear-learning (coming soon)
 
 Real-time academic feedback loop: write on paper, get instant correction through your earpiece.
 
