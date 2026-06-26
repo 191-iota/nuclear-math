@@ -1,0 +1,17 @@
+{
+  "canvas": {
+    "strokeColor": "#1a1a1a",
+    "pressureMultiplier": 2.5,
+    "backgroundColor": "#ffffff"
+  },
+  "audio": {
+    "voiceLang": "en-US",
+    "rate": 1.0,
+    "chimeCorrect": "correct.mp3",
+    "chimeError": "error.mp3"
+  },
+  "api": {
+    "model": "claude-sonnet-4-6",
+    "maxTokens": 256
+  }
+}
