@@ -69,6 +69,11 @@ export function useFeedback() {
     const resp = await getClient().messages.create({
       model: settings.api.model,
       max_tokens: settings.api.maxTokens,
+      // A small thinking budget lets the model actually verify the arithmetic in
+      // a reasoning channel (better precision, fewer false alarms) while keeping
+      // the spoken/printed verdict to one terse line. Low effort keeps it fast.
+      thinking: { type: 'adaptive' },
+      output_config: { effort: 'low' },
       system: mode.systemPrompt,
       messages: [
         {
