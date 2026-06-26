@@ -90,7 +90,7 @@ function tip(s: PageStat): string {
         </div>
         <div class="chart">
           <div v-for="s in stats" :key="s.page" class="bar-col" :title="tip(s)">
-            <div class="bar">
+            <div class="bar-track">
               <div class="seg seg-out" :style="{ height: barH(segOut(s)) }" />
               <div class="seg seg-in" :style="{ height: barH(segIn(s)) }" />
             </div>

@@ -294,7 +294,7 @@ label {
   height: 100%;
 }
 
-.bar {
+.bar-track {
   width: 100%;
   flex: 1;
   display: flex;
