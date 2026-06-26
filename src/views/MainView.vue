@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import modesData from '@config/modes.json';
+import { modes } from '@/stores/modes';
 import { usePen, type PenDot } from '@/composables/usePen';
 import { useCanvas } from '@/composables/useCanvas';
 import { useFeedback } from '@/composables/useFeedback';
@@ -8,9 +8,21 @@ import type { Mode } from '@/types';
 
 const DOT_HOVER = 3;
 
-const modes = modesData as unknown as Mode[];
-const selectedModeId = ref(modes[0].id);
-const activeMode = computed<Mode>(() => modes.find((m) => m.id === selectedModeId.value) ?? modes[0]);
+const selectedModeId = ref(modes.value[0]?.id ?? '');
+const activeMode = computed<Mode>(
+  () => modes.value.find((m) => m.id === selectedModeId.value) ?? modes.value[0],
+);
+
+// If the selected preset is deleted/renamed in the Presets view, fall back.
+watch(
+  modes,
+  () => {
+    if (!modes.value.some((m) => m.id === selectedModeId.value)) {
+      selectedModeId.value = modes.value[0]?.id ?? '';
+    }
+  },
+  { deep: true },
+);
 
 const canvasRef = ref<HTMLCanvasElement | null>(null);
 const canvas = useCanvas(canvasRef);
@@ -51,8 +63,8 @@ async function runFeedback() {
   const gen = generation;
   status.value = 'Checking…';
   try {
-    const png = canvas.exportPng();
-    const text = await feedback.getFeedback(png, activeMode.value);
+    const img = canvas.exportImage();
+    const text = await feedback.getFeedback(img, activeMode.value);
     if (gen !== generation) {
       status.value = ''; // a reset happened mid-flight — drop this result
       return;

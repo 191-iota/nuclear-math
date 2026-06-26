@@ -1,6 +1,23 @@
 import Anthropic from '@anthropic-ai/sdk';
-import settings from '@config/settings.json';
+import { settings } from '@/stores/settings';
 import type { Mode } from '@/types';
+import { recordUsage, newPage } from '@/stores/usage';
+
+type ImageMediaType = 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif';
+
+// Structured reply for solution-caching modes: a learner-facing one-line `verdict`
+// plus the worked `solution` (internal, cached) and a `problem` label so the cache
+// knows which problem it belongs to.
+const SOLUTION_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['problem', 'solution', 'verdict'],
+  properties: {
+    problem: { type: 'string' },
+    solution: { type: 'string' },
+    verdict: { type: 'string' },
+  },
+};
 
 let client: Anthropic | null = null;
 
@@ -40,6 +57,11 @@ export function useFeedback() {
   // Distinct verdicts on the current page, oldest first.
   const history: string[] = [];
   let lastDelivered = '';
+  // Session-scoped worked solution for the current problem. The first scan that
+  // can solve does so (at solveEffort); later scans verify the learner's work
+  // against this (at checkEffort) instead of re-deriving. Cleared on resetSession.
+  let cachedProblem = '';
+  let cachedSolution = '';
 
   function buildContext(mode: Mode): string {
     if (history.length === 0) {
@@ -64,35 +86,146 @@ export function useFeedback() {
     return lines.join('\n');
   }
 
-  async function getFeedback(pngDataUrl: string, mode: Mode): Promise<string> {
-    const data = pngDataUrl.replace(/^data:image\/png;base64,/, '');
+  function logUsage(resp: any, mode: Mode, effort: string, cached: boolean): void {
+    const u = resp?.usage ?? {};
+    recordUsage({
+      mode: mode.id,
+      effort,
+      cached,
+      input: u.input_tokens ?? 0,
+      output: u.output_tokens ?? 0,
+      cacheRead: u.cache_read_input_tokens ?? 0,
+      cacheCreate: u.cache_creation_input_tokens ?? 0,
+    });
+  }
+
+  async function getFeedback(imageDataUrl: string, mode: Mode): Promise<string> {
+    const match = /^data:(image\/[a-z]+);base64,(.*)$/s.exec(imageDataUrl);
+    const mediaType = (match?.[1] ?? 'image/jpeg') as ImageMediaType;
+    const data = match?.[2] ?? imageDataUrl.replace(/^data:[^,]*,/, '');
+    return mode.cacheSolution
+      ? getFeedbackCached(data, mediaType, mode)
+      : getFeedbackSimple(data, mediaType, mode);
+  }
+
+  // Original one-shot path: solve and judge every scan. Used by modes that don't
+  // cache a solution (chemistry, German, freeform).
+  async function getFeedbackSimple(
+    data: string,
+    mediaType: ImageMediaType,
+    mode: Mode,
+  ): Promise<string> {
+    const effort = settings.api.solveEffort;
     const resp = await getClient().messages.create({
       model: settings.api.model,
       max_tokens: settings.api.maxTokens,
-      // A small thinking budget lets the model actually verify the arithmetic in
-      // a reasoning channel (better precision, fewer false alarms) while keeping
-      // the spoken/printed verdict to one terse line. Low effort keeps it fast.
       thinking: { type: 'adaptive' },
-      output_config: { effort: 'medium' },
+      output_config: { effort } as any,
       system: mode.systemPrompt,
       messages: [
         {
           role: 'user',
           content: [
-            {
-              type: 'image',
-              source: { type: 'base64', media_type: 'image/png', data },
-            },
+            { type: 'image', source: { type: 'base64', media_type: mediaType, data } },
             { type: 'text', text: buildContext(mode) },
           ],
         },
       ],
     });
+    logUsage(resp, mode, effort, false);
     return (resp.content as any[])
       .filter((b) => b.type === 'text')
       .map((b) => b.text as string)
       .join(' ')
       .trim();
+  }
+
+  // Per-request context for the solve-once-then-verify path. When a solution is
+  // already cached we attach it and ask the model to verify against it (cheap);
+  // otherwise we ask it to solve the problem and hand back the worked solution.
+  function buildCachedContext(hasCache: boolean): string {
+    const lines: string[] = [];
+    if (history.length > 0) {
+      lines.push('Earlier feedback you gave on this same page (oldest first):');
+      lines.push(history.map((h, i) => `${i + 1}. ${h}`).join('\n'));
+      lines.push('');
+    }
+    if (hasCache) {
+      lines.push(
+        `You already worked out the current problem ("${cachedProblem}"). Its correct solution is:`,
+        cachedSolution,
+        '',
+        'The image shows the learner\'s current work plus anything newly added beneath it. Verify it against this known solution and keep reporting the same first unresolved step that diverges until it is fixed — do not re-derive the solution, and leave "solution" empty. Only if the learner has clearly moved to a DIFFERENT problem, solve that one yourself and return it in "solution" with its label in "problem".',
+      );
+    } else {
+      lines.push(
+        'No solution has been worked out for the current problem yet. Identify the problem the learner is working on, solve it completely yourself, and return the full worked solution in "solution" with a short label in "problem". If the problem statement is still incomplete or you cannot determine it, leave "solution" empty and answer OK in "verdict".',
+      );
+    }
+    return lines.join('\n');
+  }
+
+  // Solve-once-then-verify path. The first scan that can solve does so at
+  // solveEffort and the worked solution is cached for the session; later scans
+  // attach that solution and just check the learner's work against it at the
+  // cheaper checkEffort instead of re-deriving it from scratch every time.
+  async function getFeedbackCached(
+    data: string,
+    mediaType: ImageMediaType,
+    mode: Mode,
+  ): Promise<string> {
+    const hasCache = cachedSolution !== '';
+    const effort = hasCache ? settings.api.checkEffort : settings.api.solveEffort;
+    const resp = await getClient().messages.create({
+      model: settings.api.model,
+      max_tokens: settings.api.maxTokens,
+      thinking: { type: 'adaptive' },
+      output_config: {
+        effort,
+        format: { type: 'json_schema', schema: SOLUTION_SCHEMA },
+      } as any,
+      system: mode.systemPrompt,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: mediaType, data } },
+            { type: 'text', text: buildCachedContext(hasCache) },
+          ],
+        },
+      ],
+    });
+    logUsage(resp, mode, effort, hasCache);
+
+    const text = (resp.content as any[])
+      .filter((b) => b.type === 'text')
+      .map((b) => b.text as string)
+      .join('')
+      .trim();
+
+    try {
+      const parsed = JSON.parse(text) as {
+        problem?: string;
+        solution?: string;
+        verdict?: string;
+      };
+      const sol = (parsed.solution ?? '').trim();
+      const prob = (parsed.problem ?? '').trim();
+      if (sol) {
+        // (Re)solved — cache the worked solution for the rest of the session.
+        cachedProblem = prob || cachedProblem;
+        cachedSolution = sol;
+      } else if (hasCache && prob && cachedProblem && prob !== cachedProblem) {
+        // Learner switched problems but the cheap pass couldn't solve the new one;
+        // drop the stale solution so the next scan re-solves at solveEffort.
+        cachedProblem = '';
+        cachedSolution = '';
+      }
+      return (parsed.verdict ?? '').trim();
+    } catch {
+      // Not valid JSON — treat the whole reply as the verdict and leave the cache.
+      return text;
+    }
   }
 
   /** Commit a verdict to the page's session memory (kept distinct). */
@@ -192,6 +325,9 @@ export function useFeedback() {
   function resetSession(): void {
     history.length = 0;
     lastDelivered = '';
+    cachedProblem = '';
+    cachedSolution = '';
+    newPage();
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
     }

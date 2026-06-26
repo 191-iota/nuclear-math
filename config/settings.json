@@ -13,6 +13,15 @@
   },
   "api": {
     "model": "claude-opus-4-8",
-    "maxTokens": 2048
+    "maxTokens": 4096,
+    "solveEffort": "medium",
+    "checkEffort": "low",
+    "priceInputPerMTok": 5,
+    "priceOutputPerMTok": 25
+  },
+  "export": {
+    "maxEdgePx": 1024,
+    "jpegQuality": 0.85,
+    "paddingPx": 24
   }
 }

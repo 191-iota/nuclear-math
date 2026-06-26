@@ -1,5 +1,5 @@
 import type { Ref } from 'vue';
-import settings from '@config/settings.json';
+import { settings } from '@/stores/settings';
 import type { PenDot } from '@/composables/usePen';
 
 // Neo dot types.
@@ -157,16 +157,51 @@ export function useCanvas(canvasRef: Ref<HTMLCanvasElement | null>) {
     if (ctx && c) fillBackground(ctx, c);
   }
 
-  function exportPng(): string {
+  function exportImage(): string {
     // Flush any pending frame so the export reflects every dot.
     redraw();
     const c = canvasRef.value;
-    return c ? c.toDataURL('image/png') : '';
+    if (!c) return '';
+
+    const q = settings.export.jpegQuality;
+    // No ink yet: fall back to the whole pad (callers normally gate on hasContent).
+    if (!bbox) return c.toDataURL('image/jpeg', q);
+
+    // Project the ink's bounding box into canvas pixels, pad it, clamp to the pad.
+    // Sending only the written region instead of the whole white canvas is the
+    // dominant token saving — vision cost scales with pixel area, not bytes.
+    const pad = settings.export.paddingPx;
+    const p0 = project({ x: bbox.minX, y: bbox.minY } as PenDot, c, bbox);
+    const p1 = project({ x: bbox.maxX, y: bbox.maxY } as PenDot, c, bbox);
+    const sx = Math.max(0, Math.min(p0.px, p1.px) - pad);
+    const sy = Math.max(0, Math.min(p0.py, p1.py) - pad);
+    const sw = Math.min(c.width - sx, Math.abs(p1.px - p0.px) + pad * 2);
+    const sh = Math.min(c.height - sy, Math.abs(p1.py - p0.py) + pad * 2);
+    if (sw < 1 || sh < 1) return c.toDataURL('image/jpeg', q);
+
+    // Downscale so the long edge never exceeds maxEdgePx — handwriting stays
+    // legible well below that, and fewer pixels means fewer tokens. Never upscale.
+    const scale = Math.min(1, settings.export.maxEdgePx / Math.max(sw, sh));
+    const dw = Math.max(1, Math.round(sw * scale));
+    const dh = Math.max(1, Math.round(sh * scale));
+
+    const out = document.createElement('canvas');
+    out.width = dw;
+    out.height = dh;
+    const octx = out.getContext('2d');
+    if (!octx) return c.toDataURL('image/jpeg', q);
+    octx.fillStyle = settings.canvas.backgroundColor;
+    octx.fillRect(0, 0, dw, dh);
+    octx.imageSmoothingEnabled = true;
+    octx.imageSmoothingQuality = 'high';
+    octx.drawImage(c, sx, sy, sw, sh, 0, 0, dw, dh);
+    // Lossy JPEG keeps the payload small while strokes stay crisp at this quality.
+    return out.toDataURL('image/jpeg', q);
   }
 
   function hasContent(): boolean {
     return dots.some((d) => d.x >= 0 && d.y >= 0 && d.dotType !== DOT_HOVER);
   }
 
-  return { addDot, clear, resize, redraw, exportPng, hasContent };
+  return { addDot, clear, resize, redraw, exportImage, hasContent };
 }
