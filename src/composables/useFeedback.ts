@@ -73,7 +73,7 @@ export function useFeedback() {
       // a reasoning channel (better precision, fewer false alarms) while keeping
       // the spoken/printed verdict to one terse line. Low effort keeps it fast.
       thinking: { type: 'adaptive' },
-      output_config: { effort: 'low' },
+      output_config: { effort: 'medium' },
       system: mode.systemPrompt,
       messages: [
         {

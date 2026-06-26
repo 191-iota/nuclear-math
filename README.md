@@ -71,7 +71,7 @@ Everything tunable lives in `config/settings.json`:
 
 | Setting | What it does |
 |---|---|
-| `api.model` | `claude-sonnet-4-6` by default (low latency); switch to `claude-opus-4-8` for harder problems |
+| `api.model` | `claude-opus-4-8` by default (most accurate); switch to `claude-sonnet-4-6` for faster, lighter checks |
 | `api.maxTokens` | room for the model's reasoning pass plus the one-line verdict |
 | `canvas.maxScale` | zoom cap — higher renders your writing bigger, lower smaller |
 | `canvas.pressureMultiplier` | stroke-width response to pen pressure |
