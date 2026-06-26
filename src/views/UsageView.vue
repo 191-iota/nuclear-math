@@ -13,7 +13,7 @@ const stats = computed(() => perPage());
 
 const maxVal = computed(() =>
   Math.max(
-    1,
+    1e-9,
     ...stats.value.map((s) => (metric.value === 'cost' ? s.costUSD : s.input + s.output)),
   ),
 );
@@ -24,8 +24,13 @@ function segOut(s: PageStat): number {
 function segIn(s: PageStat): number {
   return metric.value === 'cost' ? s.inputCostUSD : s.input;
 }
-function barH(v: number): string {
-  return `${((v / maxVal.value) * 100).toFixed(2)}%`;
+function fill(s: PageStat): number {
+  return Math.max(0, maxVal.value - segOut(s) - segIn(s));
+}
+// Normalise to flex-grow factors that sum to 100 per bar — keeps proportions and
+// avoids the CSS rule where grow factors summing to < 1 don't fill the track.
+function grow(v: number): number {
+  return (v / maxVal.value) * 100;
 }
 
 function usd(n: number): string {
@@ -91,8 +96,9 @@ function tip(s: PageStat): string {
         <div class="chart">
           <div v-for="s in stats" :key="s.page" class="bar-col" :title="tip(s)">
             <div class="bar-track">
-              <div class="seg seg-out" :style="{ height: barH(segOut(s)) }" />
-              <div class="seg seg-in" :style="{ height: barH(segIn(s)) }" />
+              <div class="seg-fill" :style="{ flexGrow: grow(fill(s)) }" />
+              <div class="seg seg-out" :style="{ flexGrow: grow(segOut(s)) }" />
+              <div class="seg seg-in" :style="{ flexGrow: grow(segIn(s)) }" />
             </div>
             <div class="bar-label">{{ s.page }}</div>
           </div>

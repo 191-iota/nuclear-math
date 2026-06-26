@@ -18,7 +18,7 @@ The same work starts on real Ncode paper, written with the Neo pen.
 
 ## How it works
 
-The pen streams (x, y, pressure) points over Web Bluetooth. The app draws them onto a canvas, fitting the page coordinates to the drawing area as it goes. When you pause for a beat (a per-mode debounce), the canvas is exported to a PNG and sent to the Claude API as a vision message under the active mode's system prompt. There is no separate OCR step, Claude reads the ink directly.
+The pen streams (x, y, pressure) points over Web Bluetooth. The app draws them onto a canvas, fitting the page coordinates to the drawing area as it goes. When you pause for a beat (a per-mode debounce), the page is cropped to just the ink and sent to the Claude API as a vision message under the active mode's system prompt. There is no separate OCR step, Claude reads the ink directly.
 
 <p align="center">
   <img src="docs/pipeline.svg" alt="Neo Smartpen to canvas to Claude vision to voice and chime" width="720">
@@ -36,7 +36,7 @@ When a solution is finished and right you get that single chime. Below, a quadra
 
 A mode is a system prompt plus a few settings. Four ship by default: math, chemistry notation, German, and freeform note-reading. Each one decides how the work is judged and how the result reaches you.
 
-To add one, edit `config/modes.json` and append an object, no code changes:
+To add one, append an object to `config/modes.json`, or build it in the Presets tab, no code changes either way:
 
 ```json
 {
@@ -50,6 +50,26 @@ To add one, edit `config/modes.json` and append an object, no code changes:
 ```
 
 `feedbackStyle` is `"spoken"`, `"chime"`, or `"both"`. `debounceMs` is how long to wait after the last stroke before checking. `errorChecking` is `true` for grading modes, and `false` for read-only modes that should never be given error-detector context.
+
+## The interface
+
+The app is three tabs. The pad is where you work: connect the pen, choose a mode, and write. It keeps the controls to a thin strip and gives the rest to the page.
+
+<p align="center">
+  <img src="docs/ui-pad.png" alt="the pad tab: a thin toolbar over a blank writing area" width="860">
+</p>
+
+Usage shows what the checking costs. Every scan's token use is logged and drawn per page, split into the cheap part, the cropped image and the prompt, and the pricier part, the model's reasoning and the one-line verdict, so you can see where the spend goes and watch a model or effort change move it. There is a dark theme too, shown here.
+
+<p align="center">
+  <img src="docs/ui-usage.png" alt="the usage tab: per-page cost bars split into input and output" width="860">
+</p>
+
+Presets is where the modes live. A mode's prompt, debounce, feedback style, and whether it caches a solved answer are all editable in place, with the engine settings, model, effort, image size, and prices, folded into the panel at the top. The defaults still come from `config/modes.json` and `config/settings.json`; this just edits them without a reload.
+
+<p align="center">
+  <img src="docs/ui-presets.png" alt="the presets tab: a math preset expanded for editing" width="860">
+</p>
 
 ## Staying coherent across a page
 
@@ -73,7 +93,7 @@ The key is read from `VITE_ANTHROPIC_API_KEY` and used directly from the browser
 
 ## Settings
 
-Everything tunable lives in `config/settings.json`.
+Everything tunable lives in `config/settings.json`, and can also be changed live in the Presets tab.
 
 | Setting | What it does |
 |---|---|
