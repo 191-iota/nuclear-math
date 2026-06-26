@@ -5,9 +5,9 @@ You antisocial folks will particularly like this one. Sorry tutors :D
 Real-time feedback for handwritten work. You write on paper with a Neo Smartpen, the strokes stream into the browser over Bluetooth, and a moment after you pause the page is sent to Claude, which reads it and tells you — spoken aloud or with a chime — whether it found a mistake. The point is a tight write-check-correct loop: you fix the error yourself from a one-line hint instead of being shown the answer.
 
 <p align="center">
-  <img src="docs/demo.png" alt="the app: a fresh problem up top and a self-corrected solution below" width="860">
+  <img src="docs/demo.png" alt="the app connected to a Neo Smartpen, a fresh problem on the pad" width="860">
   <br>
-  <sub>a fresh problem up top, a worked solution below — the app reads your own corrections (the "falsch" mark, the arrow, the redo) and shows its hint along the bottom</sub>
+  <sub>the app — connected to the pen, a fresh problem on the pad</sub>
 </p>
 
 <p align="center">
