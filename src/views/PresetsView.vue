@@ -60,6 +60,12 @@ const STYLES = ['spoken', 'chime', 'both'];
               </select>
             </div>
             <div class="field">
+              <label>Verify effort</label>
+              <select v-model="settings.api.verifyEffort">
+                <option v-for="e in EFFORTS" :key="e" :value="e">{{ e }}</option>
+              </select>
+            </div>
+            <div class="field">
               <label>Max tokens</label>
               <input v-model.number="settings.api.maxTokens" type="number" min="256" step="256" />
             </div>

@@ -262,10 +262,11 @@ export function useFeedback() {
       return r.verdict;
     }
 
-    // VERIFY — cheap model checks progress against the cached solution.
+    // VERIFY — cheap model checks progress against the cached solution. The effort
+    // is applied only if the verify model supports it (ignored for e.g. Haiku).
     const r = await callModel(
       settings.api.verifyModel,
-      null,
+      settings.api.verifyEffort,
       'verify',
       data,
       mediaType,

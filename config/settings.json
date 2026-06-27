@@ -16,7 +16,8 @@
     "maxTokens": 4096,
     "solveModel": "claude-opus-4-8",
     "solveEffort": "medium",
-    "verifyModel": "claude-haiku-4-5",
+    "verifyModel": "claude-sonnet-4-6",
+    "verifyEffort": "low",
     "confirmModel": "claude-opus-4-8",
     "confirmEffort": "low"
   },
