@@ -72,7 +72,7 @@ Presets is where the modes live. A mode's prompt, debounce, feedback style, and 
 A page is scanned many times as you write, so the natural question is what that costs. To find out I played a deliberately clumsy student: a messy page, worked out in pieces and left to re-scan again and again as it came together.
 
 <p align="center">
-  <img src="docs/clumsy-run.png" alt="a clumsy, hand-worked reflection problem" width="380">
+  <img src="docs/clumsy-run.jpg" alt="the reflection problem worked out by hand on Ncode paper, with a couple of self-corrected slips" width="440">
 </p>
 
 Nine scans of that page came to about nine cents.
