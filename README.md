@@ -85,6 +85,8 @@ That holds because the work is split across models by how hard each part is. The
 
 Two things keep the scan count down. A scan only fires once enough new ink has arrived, so pausing to think spends nothing, and once a problem is solved it is never solved again. Most of what is left is input, the cropped image and the prompt re-sent on each scan, so a smaller image or fewer scans move the number more than anything on the output side.
 
+There is a second way to route this, off by default. Instead of handing the repetitive middle to a cheaper model, a quick classifier judges each problem as simple or multi-step the first time it can read it, and everything then runs on the strong model: a light touch on a simple problem, more deliberation on a multi-step one. Whether the cheaper-middle split or the by-difficulty one comes out ahead depends on the problems you throw at it, and both live in the Presets panel.
+
 ## Staying coherent across a page
 
 A page is checked many times as you write, so the scans stay consistent instead of each being a fresh shot. The same correction is never replayed: a verdict is spoken or chimed only when it differs from the last one, so while you are still fixing "Step 3: check your sign" it stays on screen but stops talking. Each request also carries the verdicts already given as context, so Claude stays consistent with itself, never re-flagging a line it already confirmed and keeping the same first unresolved error until you fix it. Feedback follows you to the problem you are on too, so several problems can share a page (1a, 1b, 2) and it grades the lowest unfinished one rather than staying pinned to an earlier error. Requests run one at a time and in order, so verdicts never arrive out of sequence.
