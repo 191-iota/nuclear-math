@@ -59,11 +59,10 @@ export function useFeedback() {
   const history: string[] = [];
   let lastDelivered = '';
   // Session-scoped worked solution for the current problem. The solve model works
-  // it out once; later scans verify against it on the cheap model. Cleared on
-  // resetSession. `haikuUnreliable` flips on if the confirm model overturns the
-  // cheap model's CORRECT — then the rest of THIS problem verifies on the confirm
-  // model. Reset per problem.
-  let cachedProblem = '';
+  // it out once and this LATCHES — later scans verify against it on the cheap model
+  // and it is never re-solved until resetSession (Clear). `haikuUnreliable` flips on
+  // if the confirm model overturns the cheap model's CORRECT — then the rest of THIS
+  // problem verifies on the confirm model.
   let cachedSolution = '';
   let haikuUnreliable = false;
 
@@ -156,10 +155,10 @@ export function useFeedback() {
     }
     if (hasCache) {
       lines.push(
-        `You already worked out the current problem ("${cachedProblem}"). Its correct solution is:`,
+        'The correct solution to the current problem is:',
         cachedSolution,
         '',
-        'The image shows the learner\'s current work plus anything newly added beneath it. Verify it against this known solution and keep reporting the same first unresolved step that diverges until it is fixed — do not re-derive the solution, and leave "solution" empty. Only if the learner has clearly moved to a DIFFERENT problem, solve that one yourself and return it in "solution" with its label in "problem".',
+        'The image shows the learner\'s current work plus anything newly added beneath it. Verify it against this known solution and keep reporting the same first unresolved step that diverges until it is fixed. Do not re-derive; leave "solution" empty.',
       );
     } else {
       lines.push(
@@ -220,21 +219,10 @@ export function useFeedback() {
     }
   }
 
-  // Learner moved to a different problem than the cached one → drop the cache so
-  // the next scan re-solves on the solve model, and trust the cheap verifier again
-  // for the new problem. Returns true if a switch was detected.
-  function handleProblemSwitch(prob: string): boolean {
-    if (prob && cachedProblem && prob !== cachedProblem) {
-      cachedProblem = '';
-      cachedSolution = '';
-      haikuUnreliable = false;
-      return true;
-    }
-    return false;
-  }
-
   // Tiered solve-then-verify path:
-  //   solve   — first solvable scan: the solve model works it out once and caches it.
+  //   solve   — runs only until a solution is cached. ONCE SOLVED IT LATCHES: the
+  //             problem is never solved again for the rest of the session (until
+  //             Clear). Move to a new problem with Clear.
   //   verify  — every later scan: a cheap model checks progress against the cache.
   //   confirm — when the cheap model says CORRECT, the confirm model re-checks the
   //             final answer before it chimes; if it disagrees, the cheap model is
@@ -245,7 +233,7 @@ export function useFeedback() {
     mediaType: ImageMediaType,
     mode: Mode,
   ): Promise<string> {
-    // SOLVE — no cached solution yet.
+    // SOLVE — only while there is no cached solution. Latches once solved.
     if (cachedSolution === '') {
       const r = await callModel(
         settings.api.solveModel,
@@ -256,10 +244,7 @@ export function useFeedback() {
         mode,
         buildCachedContext(false),
       );
-      if (r.solution) {
-        cachedProblem = r.problem || cachedProblem;
-        cachedSolution = r.solution;
-      }
+      if (r.solution) cachedSolution = r.solution;
       return r.verdict;
     }
 
@@ -274,7 +259,7 @@ export function useFeedback() {
         mode,
         buildCachedContext(true),
       );
-      return handleProblemSwitch(r.problem) ? 'OK' : r.verdict;
+      return r.verdict;
     }
 
     // VERIFY — cheap model checks progress against the cached solution.
@@ -287,7 +272,6 @@ export function useFeedback() {
       mode,
       buildCachedContext(true),
     );
-    if (handleProblemSwitch(r.problem)) return 'OK';
     if (!isCorrect(r.verdict)) return r.verdict;
 
     // The cheap model thinks it's done — re-check the final answer on the confirm
@@ -301,7 +285,6 @@ export function useFeedback() {
       mode,
       buildCachedContext(true),
     );
-    if (handleProblemSwitch(c.problem)) return 'OK';
     if (isCorrect(c.verdict)) return c.verdict; // confirmed
     // The confirm model disagrees — the cheap one was wrong. Stop trusting it on
     // this problem and deliver the confirm model's hint instead.
@@ -408,7 +391,6 @@ export function useFeedback() {
   function resetSession(): void {
     history.length = 0;
     lastDelivered = '';
-    cachedProblem = '';
     cachedSolution = '';
     haikuUnreliable = false;
     newPage();
