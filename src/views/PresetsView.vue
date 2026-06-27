@@ -20,12 +20,27 @@ const STYLES = ['spoken', 'chime', 'both'];
         <summary>
           <span class="summary-label">Engine</span>
           <span class="summary-meta">
-            solve {{ settings.api.solveModel.replace('claude-', '') }} · verify
-            {{ settings.api.verifyModel.replace('claude-', '') }}
+            {{ settings.api.routing }} · solve {{ settings.api.solveModel.replace('claude-', '') }}
           </span>
         </summary>
         <div class="config-body">
           <div class="field-row">
+            <div class="field">
+              <label>Routing</label>
+              <select v-model="settings.api.routing">
+                <option value="manual">Manual (tiered)</option>
+                <option value="auto">Automatic (by complexity)</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Classify model (auto)</label>
+              <select v-model="settings.api.classifyModel">
+                <option v-for="m in MODELS" :key="m.id" :value="m.id">{{ m.label }}</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="field-row" style="margin-top: 0.7rem">
             <div class="field">
               <label>Solve model</label>
               <select v-model="settings.api.solveModel">
@@ -105,8 +120,10 @@ const STYLES = ['spoken', 'chime', 'both'];
 
           <div class="row" style="margin-top: 0.8rem">
             <span class="muted" style="font-size: 0.72rem">
-              Solve &amp; confirm run on the capable model; routine verify on the cheap one. Prices
-              come from the model, so the Usage cost is exact per scan.
+              Manual: solve &amp; confirm on the capable model, routine verify on the cheap one.
+              Automatic: a classify call picks the difficulty, then the solve model both solves
+              (low effort if simple, your solve effort if complex) and checks (confirm effort).
+              Prices come from the model, so the Usage cost is exact per scan.
             </span>
             <span class="spacer" />
             <button class="ghost" @click="resetSettings">Reset engine</button>

@@ -20,6 +20,15 @@ const SOLUTION_SCHEMA = {
   },
 };
 
+// Automatic routing: a cheap model classifies the problem's difficulty once, which
+// picks the solve effort.
+const CLASSIFY_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['complexity'],
+  properties: { complexity: { type: 'string', enum: ['simple', 'complex', 'unready'] } },
+};
+
 let client: Anthropic | null = null;
 
 function getClient(): Anthropic {
@@ -65,6 +74,8 @@ export function useFeedback() {
   // problem verifies on the confirm model.
   let cachedSolution = '';
   let haikuUnreliable = false;
+  // Automatic-routing only: cached difficulty class for the current problem.
+  let complexity = '';
 
   function buildContext(mode: Mode): string {
     if (history.length === 0) {
@@ -219,6 +230,87 @@ export function useFeedback() {
     }
   }
 
+  // Automatic routing: a cheap model judges whether the posed problem is simple or
+  // multi-step (once), which selects the solve effort. Biased toward "complex" when
+  // unsure, since a complex problem solved at low effort poisons every later check.
+  async function classify(
+    data: string,
+    mediaType: ImageMediaType,
+    mode: Mode,
+  ): Promise<string> {
+    const model = settings.api.classifyModel;
+    const info = modelInfo(model);
+    const params: any = {
+      model,
+      max_tokens: 64,
+      system:
+        'You classify a handwritten math problem by difficulty. Judge the PROBLEM being posed, not the learner\'s working. Set "complexity" to "simple" for a one- or two-step problem, "complex" for a multi-step problem, or "unready" if the problem statement is not yet fully written or you cannot tell. If unsure between simple and complex, answer complex.',
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: mediaType, data } },
+            { type: 'text', text: 'Classify the problem: simple, complex, or unready.' },
+          ],
+        },
+      ],
+      output_config: { format: { type: 'json_schema', schema: CLASSIFY_SCHEMA } },
+    };
+    if (info.effort) params.thinking = { type: 'adaptive' };
+    const resp = await getClient().messages.create(params);
+    logUsage(resp, mode, model, 'classify');
+    const out = (resp.content as any[])
+      .filter((b) => b.type === 'text')
+      .map((b) => b.text as string)
+      .join('')
+      .trim();
+    try {
+      return (JSON.parse(out).complexity ?? 'unready').trim();
+    } catch {
+      return 'unready';
+    }
+  }
+
+  // Automatic routing path: classify once → solve on the strong model at the
+  // complexity-gated effort (low for simple, solveEffort for complex) → check every
+  // later scan on the strong model at confirmEffort. All on the solve model; no
+  // cheap-verify tier and no separate confirm gate.
+  async function getFeedbackAuto(
+    data: string,
+    mediaType: ImageMediaType,
+    mode: Mode,
+  ): Promise<string> {
+    if (complexity === '') {
+      const cls = await classify(data, mediaType, mode);
+      if (cls !== 'simple' && cls !== 'complex') return 'OK'; // problem not complete yet
+      complexity = cls;
+    }
+    if (cachedSolution === '') {
+      const effort = complexity === 'complex' ? settings.api.solveEffort : 'low';
+      const r = await callModel(
+        settings.api.solveModel,
+        effort,
+        'solve',
+        data,
+        mediaType,
+        mode,
+        buildCachedContext(false),
+      );
+      if (r.solution) cachedSolution = r.solution;
+      return r.verdict;
+    }
+    const r = await callModel(
+      settings.api.solveModel,
+      settings.api.confirmEffort,
+      'verify',
+      data,
+      mediaType,
+      mode,
+      buildCachedContext(true),
+    );
+    return r.verdict;
+  }
+
   // Tiered solve-then-verify path:
   //   solve   — runs only until a solution is cached. ONCE SOLVED IT LATCHES: the
   //             problem is never solved again for the rest of the session (until
@@ -233,6 +325,8 @@ export function useFeedback() {
     mediaType: ImageMediaType,
     mode: Mode,
   ): Promise<string> {
+    if (settings.api.routing === 'auto') return getFeedbackAuto(data, mediaType, mode);
+
     // SOLVE — only while there is no cached solution. Latches once solved.
     if (cachedSolution === '') {
       const r = await callModel(
@@ -394,6 +488,7 @@ export function useFeedback() {
     lastDelivered = '';
     cachedSolution = '';
     haikuUnreliable = false;
+    complexity = '';
     newPage();
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();

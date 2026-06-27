@@ -11,7 +11,7 @@ import { modelInfo } from '@/models';
  *
  * Console access:  __nlUsage.summary() · __nlUsage.records() · __nlUsage.clear()
  */
-export type Role = 'solve' | 'verify' | 'confirm';
+export type Role = 'solve' | 'verify' | 'confirm' | 'classify';
 
 export interface UsageRecord {
   page: number;
