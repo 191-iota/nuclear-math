@@ -234,7 +234,9 @@ export function useFeedback() {
     const key = normalize(text);
     if (!history.some((h) => normalize(h) === key)) {
       history.push(text);
-      if (history.length > 8) history.shift();
+      // Keep only the last few verdicts as context — enough for consistency,
+      // small enough to keep re-sent input down on every scan.
+      if (history.length > 4) history.shift();
     }
   }
 

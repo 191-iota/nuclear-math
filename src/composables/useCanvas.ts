@@ -29,6 +29,9 @@ export function useCanvas(canvasRef: Ref<HTMLCanvasElement | null>) {
   // Largest force seen so far — the pen reports raw force values whose scale
   // varies, so we self-calibrate line width against this.
   let maxForce = 1;
+  // Count of pen-down events = strokes written. Used to gate scans on how much
+  // new ink has been added since the last check.
+  let strokes = 0;
 
   function context(): CanvasRenderingContext2D | null {
     const c = canvasRef.value;
@@ -122,6 +125,7 @@ export function useCanvas(canvasRef: Ref<HTMLCanvasElement | null>) {
 
   function addDot(d: PenDot) {
     if (d.dotType === DOT_HOVER) return;
+    if (d.dotType === DOT_DOWN) strokes += 1;
     const hasCoords = d.x >= 0 && d.y >= 0;
     // Drop page-info / placeholder dots that carry no coordinates, but keep
     // PEN_DOWN (whose (-1,-1) is a sentinel) as a stroke-start marker.
@@ -152,6 +156,7 @@ export function useCanvas(canvasRef: Ref<HTMLCanvasElement | null>) {
     dots.length = 0;
     bbox = null;
     maxForce = 1;
+    strokes = 0;
     const ctx = context();
     const c = canvasRef.value;
     if (ctx && c) fillBackground(ctx, c);
@@ -203,5 +208,9 @@ export function useCanvas(canvasRef: Ref<HTMLCanvasElement | null>) {
     return dots.some((d) => d.x >= 0 && d.y >= 0 && d.dotType !== DOT_HOVER);
   }
 
-  return { addDot, clear, resize, redraw, exportImage, hasContent };
+  function strokeCount(): number {
+    return strokes;
+  }
+
+  return { addDot, clear, resize, redraw, exportImage, hasContent, strokeCount };
 }

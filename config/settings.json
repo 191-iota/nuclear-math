@@ -20,8 +20,12 @@
     "priceOutputPerMTok": 25
   },
   "export": {
-    "maxEdgePx": 1024,
+    "maxEdgePx": 896,
     "jpegQuality": 0.85,
-    "paddingPx": 24
+    "paddingPx": 16
+  },
+  "scan": {
+    "minNewStrokes": 8,
+    "idleFlushMs": 6000
   }
 }

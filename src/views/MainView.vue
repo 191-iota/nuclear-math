@@ -4,6 +4,7 @@ import { modes } from '@/stores/modes';
 import { usePen, type PenDot } from '@/composables/usePen';
 import { useCanvas } from '@/composables/useCanvas';
 import { useFeedback } from '@/composables/useFeedback';
+import { settings } from '@/stores/settings';
 import type { Mode } from '@/types';
 
 const DOT_HOVER = 3;
@@ -37,11 +38,22 @@ let dirty = false; // new strokes since the last completed scan
 let pendingAgain = false; // strokes arrived while a scan was in flight
 let debounceTimer: number | undefined;
 let generation = 0; // bumped on clear / mode change to discard stale in-flight scans
+// Change-gating: how many strokes existed at the last scan, plus an idle-flush
+// timer so a small final increment is still checked once the pen goes idle.
+let strokesAtLastScan = 0;
+let flushTimer: number | undefined;
+let flushing = false;
 
 function onDot(dot: PenDot) {
   canvas.addDot(dot);
   if (dot.dotType === DOT_HOVER) return;
   dirty = true;
+  // Active writing resumed — cancel any pending idle flush.
+  flushing = false;
+  if (flushTimer) {
+    window.clearTimeout(flushTimer);
+    flushTimer = undefined;
+  }
   scheduleFeedback();
 }
 
@@ -52,14 +64,42 @@ function scheduleFeedback() {
   debounceTimer = window.setTimeout(runFeedback, activeMode.value.debounceMs);
 }
 
+// After the debounce fires with too little new ink, wait out a longer idle and
+// then scan anyway — so a finished answer is never skipped just because the last
+// addition was small.
+function scheduleFlush() {
+  if (flushTimer) window.clearTimeout(flushTimer);
+  flushTimer = window.setTimeout(() => {
+    flushTimer = undefined;
+    flushing = true;
+    runFeedback();
+  }, settings.scan.idleFlushMs);
+}
+
 async function runFeedback() {
   if (!canvas.hasContent() || !dirty) return;
   if (requesting.value) {
     pendingAgain = true; // serialise: re-run after the current scan finishes
     return;
   }
+  // Gate on how much new ink arrived since the last scan. Below the threshold we
+  // wait for more (batching mid-writing scans), unless this is an idle flush. A
+  // finished answer is substantial ink, so it always trips the threshold; and the
+  // flush covers the case where the learner stops after a small final tweak.
+  const newStrokes = canvas.strokeCount() - strokesAtLastScan;
+  if (newStrokes <= 0) return;
+  if (newStrokes < settings.scan.minNewStrokes && !flushing) {
+    scheduleFlush();
+    return;
+  }
+  flushing = false;
+  if (flushTimer) {
+    window.clearTimeout(flushTimer);
+    flushTimer = undefined;
+  }
   requesting.value = true;
   dirty = false;
+  strokesAtLastScan = canvas.strokeCount();
   const gen = generation;
   status.value = 'Checking…';
   try {
@@ -102,11 +142,19 @@ async function connect() {
   }
 }
 
+function resetGating() {
+  if (flushTimer) window.clearTimeout(flushTimer);
+  flushTimer = undefined;
+  flushing = false;
+  strokesAtLastScan = 0;
+}
+
 function startFreshPage() {
   generation += 1; // invalidate any in-flight scan
   if (debounceTimer) window.clearTimeout(debounceTimer);
   dirty = false;
   pendingAgain = false;
+  resetGating();
   canvas.clear();
   feedback.resetSession();
   lastFeedback.value = '';
@@ -116,6 +164,7 @@ function startFreshPage() {
 // Switching mode is also a fresh start for feedback context (keep the drawing).
 watch(selectedModeId, () => {
   generation += 1;
+  resetGating(); // re-evaluate the existing drawing under the new mode
   feedback.resetSession();
   lastFeedback.value = '';
   status.value = '';
@@ -140,6 +189,7 @@ onBeforeUnmount(() => {
   resizeObserver?.disconnect();
   window.removeEventListener('resize', canvas.resize);
   if (debounceTimer) window.clearTimeout(debounceTimer);
+  if (flushTimer) window.clearTimeout(flushTimer);
 });
 
 const connectionLabel = computed(() => {

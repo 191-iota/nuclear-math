@@ -88,6 +88,17 @@ function onModelChange(): void {
 
           <div class="field-row" style="margin-top: 0.7rem">
             <div class="field">
+              <label>Re-check after (strokes)</label>
+              <input v-model.number="settings.scan.minNewStrokes" type="number" min="1" step="1" />
+            </div>
+            <div class="field">
+              <label>Idle flush (ms)</label>
+              <input v-model.number="settings.scan.idleFlushMs" type="number" min="1000" step="500" />
+            </div>
+          </div>
+
+          <div class="field-row" style="margin-top: 0.7rem">
+            <div class="field">
               <label>Input $ / 1M tok</label>
               <input v-model.number="settings.api.priceInputPerMTok" type="number" min="0" step="0.5" />
             </div>
