@@ -158,7 +158,7 @@ export function useFeedback() {
         'The correct solution to the current problem is:',
         cachedSolution,
         '',
-        'The image shows the learner\'s current work plus anything newly added beneath it. Verify it against this known solution and keep reporting the same first unresolved step that diverges until it is fixed. Do not re-derive; leave "solution" empty.',
+        'The image shows the learner\'s current work. Verify RESULT-FIRST: if their final answer matches the known solution, respond CORRECT even if an earlier line looks off; only flag a step when one of their results actually disagrees with the known solution, and read what they actually wrote rather than guessing a formula. Do not re-derive; leave "solution" empty.',
       );
     } else {
       lines.push(
