@@ -19,12 +19,10 @@ const tabs: { id: View; label: string }[] = [
     <header class="topnav">
       <span class="brand">
         <svg class="brand-mark" viewBox="0 0 64 64" aria-hidden="true">
-          <g fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round">
-            <ellipse cx="32" cy="32" rx="27" ry="10.5" />
-            <ellipse cx="32" cy="32" rx="27" ry="10.5" transform="rotate(60 32 32)" />
-            <ellipse cx="32" cy="32" rx="27" ry="10.5" transform="rotate(120 32 32)" />
-          </g>
-          <circle cx="32" cy="32" r="4.8" fill="var(--gold)" />
+          <path d="M18.43 7.51A28 28 0 0 1 45.57 7.51L36.85 23.25A10 10 0 0 0 27.15 23.25Z" fill="currentColor" />
+          <path d="M60.00 32.49A28 28 0 0 1 46.42 56.00L37.15 40.57A10 10 0 0 0 42.00 32.17Z" fill="currentColor" />
+          <path d="M17.58 56.00A28 28 0 0 1 4.00 32.49L22.00 32.17A10 10 0 0 0 26.85 40.57Z" fill="currentColor" />
+          <circle cx="32" cy="32" r="4.6" fill="var(--gold)" />
         </svg>
         nuclear<span class="brand-dim">·learning</span>
       </span>
