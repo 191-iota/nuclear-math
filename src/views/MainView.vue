@@ -33,6 +33,32 @@ const lastFeedback = ref('');
 const status = ref('');
 const requesting = ref(false);
 
+// Auto-clear after a correct answer: once a problem is marked CORRECT, a short
+// countdown clears the pad for the next problem unless you keep it (or write more).
+const autoClearLeft = ref(0); // seconds remaining; 0 = inactive
+let autoClearTimer: number | undefined;
+
+function cancelAutoClear() {
+  if (autoClearTimer) {
+    window.clearInterval(autoClearTimer);
+    autoClearTimer = undefined;
+  }
+  autoClearLeft.value = 0;
+}
+
+function startAutoClear() {
+  const secs = settings.scan.autoClearSec ?? 0;
+  if (secs <= 0 || autoClearLeft.value > 0) return; // disabled, or already counting
+  autoClearLeft.value = secs;
+  autoClearTimer = window.setInterval(() => {
+    autoClearLeft.value -= 1;
+    if (autoClearLeft.value <= 0) {
+      cancelAutoClear();
+      startFreshPage(); // same as pressing Clear
+    }
+  }, 1000);
+}
+
 // Orchestration state for sequential, coherent scans.
 let dirty = false; // new strokes since the last completed scan
 let pendingAgain = false; // strokes arrived while a scan was in flight
@@ -47,6 +73,8 @@ let flushing = false;
 function onDot(dot: PenDot) {
   canvas.addDot(dot);
   if (dot.dotType === DOT_HOVER) return;
+  // Writing again means you want to keep this page — call off any pending clear.
+  if (autoClearLeft.value > 0) cancelAutoClear();
   dirty = true;
   // Active writing resumed — cancel any pending idle flush.
   flushing = false;
@@ -113,6 +141,10 @@ async function runFeedback() {
     lastFeedback.value = feedback.isQuiet(text) ? 'Looks good so far…' : text;
     feedback.deliver(text, activeMode.value);
     status.value = '';
+    // Correct → offer to auto-advance to the next problem; any other verdict
+    // (a fresh error after a correct one) calls off a pending clear.
+    if (feedback.isCorrect(text)) startAutoClear();
+    else if (!feedback.isQuiet(text)) cancelAutoClear();
   } catch (err: any) {
     if (gen !== generation) {
       status.value = '';
@@ -150,6 +182,7 @@ function resetGating() {
 }
 
 function startFreshPage() {
+  cancelAutoClear();
   generation += 1; // invalidate any in-flight scan
   if (debounceTimer) window.clearTimeout(debounceTimer);
   dirty = false;
@@ -163,6 +196,7 @@ function startFreshPage() {
 
 // Switching mode is also a fresh start for feedback context (keep the drawing).
 watch(selectedModeId, () => {
+  cancelAutoClear();
   generation += 1;
   resetGating(); // re-evaluate the existing drawing under the new mode
   feedback.resetSession();
@@ -190,6 +224,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', canvas.resize);
   if (debounceTimer) window.clearTimeout(debounceTimer);
   if (flushTimer) window.clearTimeout(flushTimer);
+  cancelAutoClear();
 });
 
 const connectionLabel = computed(() => {
@@ -217,6 +252,11 @@ const connectionLabel = computed(() => {
 
     <main class="stage">
       <canvas ref="canvasRef" class="pad" />
+      <div v-if="autoClearLeft > 0" class="autoclear" role="status">
+        <span class="ac-dot" />
+        <span class="ac-msg">Solved — clearing for the next problem in {{ autoClearLeft }}s</span>
+        <button class="ghost" @click="cancelAutoClear">Keep</button>
+      </div>
     </main>
 
     <footer class="status">
@@ -265,6 +305,36 @@ const connectionLabel = computed(() => {
   flex: 1;
   padding: 0.8rem;
   min-height: 0;
+  position: relative;
+}
+
+.autoclear {
+  position: absolute;
+  left: 50%;
+  bottom: 1.4rem;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.6rem 0.5rem 0.85rem;
+  background: var(--panel);
+  border: 1px solid var(--gold);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12);
+  font-size: 0.8rem;
+  color: var(--ink);
+}
+
+.autoclear .ac-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--good);
+  flex: none;
+}
+
+.autoclear .ac-msg {
+  font-variant-numeric: tabular-nums;
 }
 
 .pad {

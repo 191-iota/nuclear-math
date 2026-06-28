@@ -30,6 +30,7 @@
   },
   "scan": {
     "minNewStrokes": 8,
-    "idleFlushMs": 6000
+    "idleFlushMs": 6000,
+    "autoClearSec": 5
   }
 }

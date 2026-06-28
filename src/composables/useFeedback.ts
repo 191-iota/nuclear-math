@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { settings } from '@/stores/settings';
 import type { Mode } from '@/types';
 import { recordUsage, newPage, type Role } from '@/stores/usage';
+import { addLesson } from '@/stores/lessons';
 import { modelInfo } from '@/models';
 
 type ImageMediaType = 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif';
@@ -64,7 +65,10 @@ export function useFeedback() {
   // if the confirm model overturns the cheap model's CORRECT — then the rest of THIS
   // problem verifies on the confirm model.
   let cachedSolution = '';
+  let cachedProblem = '';
   let haikuUnreliable = false;
+  // One lesson per problem: set once a corrected mistake is logged this session.
+  let lessonCaptured = false;
   // Automatic-routing only: cached difficulty class for the current problem.
   let complexity = '';
 
@@ -108,9 +112,40 @@ export function useFeedback() {
     const match = /^data:(image\/[a-z]+);base64,(.*)$/s.exec(imageDataUrl);
     const mediaType = (match?.[1] ?? 'image/jpeg') as ImageMediaType;
     const data = match?.[2] ?? imageDataUrl.replace(/^data:[^,]*,/, '');
-    return mode.cacheSolution
+    const verdict = await (mode.cacheSolution
       ? getFeedbackCached(data, mediaType, mode)
-      : getFeedbackSimple(data, mediaType, mode);
+      : getFeedbackSimple(data, mediaType, mode));
+    maybeCaptureLesson(verdict, mode);
+    return verdict;
+  }
+
+  // The most recent flagged error still in session memory — the mistake the
+  // learner just had to fix. Skips OK / CORRECT lines.
+  function lastError(): string {
+    for (let i = history.length - 1; i >= 0; i--) {
+      const h = history[i];
+      if (!isQuiet(h) && !isCorrect(h)) return h;
+    }
+    return '';
+  }
+
+  // Zero-cost lesson capture: the moment a problem turns CORRECT after an error,
+  // the error verdict (and, for caching modes, the problem label + worked
+  // solution) is already in hand from this very scan — log it for review. One per
+  // problem; nothing is captured when the work was right the first time.
+  function maybeCaptureLesson(verdict: string, mode: Mode): void {
+    if (lessonCaptured || mode.errorChecking === false) return;
+    if (!isCorrect(verdict)) return;
+    const mistake = lastError();
+    if (!mistake) return;
+    lessonCaptured = true;
+    addLesson({
+      mode: mode.id,
+      modeLabel: mode.label,
+      problem: cachedProblem,
+      mistake,
+      solution: cachedSolution,
+    });
   }
 
   // Original one-shot path: solve and judge every scan. Used by modes that don't
@@ -294,6 +329,7 @@ export function useFeedback() {
         buildCachedContext(false),
       );
       if (r.solution) cachedSolution = r.solution;
+      if (r.problem) cachedProblem = r.problem;
       return r.verdict;
     }
     const r = await callModel(
@@ -336,6 +372,7 @@ export function useFeedback() {
         buildCachedContext(false),
       );
       if (r.solution) cachedSolution = r.solution;
+      if (r.problem) cachedProblem = r.problem;
       return r.verdict;
     }
 
@@ -484,7 +521,9 @@ export function useFeedback() {
     history.length = 0;
     lastDelivered = '';
     cachedSolution = '';
+    cachedProblem = '';
     haikuUnreliable = false;
+    lessonCaptured = false;
     complexity = '';
     newPage();
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {

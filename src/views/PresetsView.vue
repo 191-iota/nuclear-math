@@ -116,6 +116,10 @@ const STYLES = ['spoken', 'chime', 'both'];
               <label>Idle flush (ms)</label>
               <input v-model.number="settings.scan.idleFlushMs" type="number" min="1000" step="500" />
             </div>
+            <div class="field">
+              <label>Auto-clear on correct (s, 0 = off)</label>
+              <input v-model.number="settings.scan.autoClearSec" type="number" min="0" step="1" />
+            </div>
           </div>
 
           <div class="row" style="margin-top: 0.8rem">

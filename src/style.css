@@ -224,6 +224,20 @@ label {
   border-color: var(--accent);
 }
 
+.tab-badge {
+  display: inline-block;
+  margin-left: 0.4rem;
+  min-width: 1.05rem;
+  padding: 0 0.3rem;
+  font-size: 0.66rem;
+  line-height: 1.05rem;
+  text-align: center;
+  color: var(--accent-ink);
+  background: var(--gold);
+  border-radius: 999px;
+  vertical-align: middle;
+}
+
 .theme {
   width: 2rem;
   padding: 0.35rem 0;

@@ -1,17 +1,21 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import MainView from '@/views/MainView.vue';
+import LessonsView from '@/views/LessonsView.vue';
 import UsageView from '@/views/UsageView.vue';
 import PresetsView from '@/views/PresetsView.vue';
 import { theme, toggleTheme } from '@/stores/theme';
+import { lessonStats } from '@/stores/lessons';
 
-type View = 'pad' | 'usage' | 'presets';
+type View = 'pad' | 'lessons' | 'usage' | 'presets';
 const view = ref<View>('pad');
 const tabs: { id: View; label: string }[] = [
   { id: 'pad', label: 'Pad' },
+  { id: 'lessons', label: 'Lessons' },
   { id: 'usage', label: 'Usage' },
   { id: 'presets', label: 'Presets' },
 ];
+const dueCount = computed(() => lessonStats().due);
 </script>
 
 <template>
@@ -34,7 +38,9 @@ const tabs: { id: View; label: string }[] = [
           :class="{ active: view === t.id }"
           @click="view = t.id"
         >
-          {{ t.label }}
+          {{ t.label }}<span v-if="t.id === 'lessons' && dueCount > 0" class="tab-badge">{{
+            dueCount
+          }}</span>
         </button>
       </nav>
       <span class="spacer" />
@@ -50,6 +56,7 @@ const tabs: { id: View; label: string }[] = [
     <main class="content">
       <!-- Kept mounted so the pen stays connected and the canvas persists. -->
       <MainView v-show="view === 'pad'" />
+      <LessonsView v-if="view === 'lessons'" />
       <UsageView v-if="view === 'usage'" />
       <PresetsView v-if="view === 'presets'" />
     </main>
