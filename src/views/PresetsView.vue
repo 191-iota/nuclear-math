@@ -24,15 +24,15 @@ const STYLES = ['spoken', 'chime', 'both'];
           </span>
         </summary>
         <div class="config-body">
-          <div class="field-row">
-            <div class="field">
+          <div class="eng-row">
+            <div class="field span-3">
               <label>Routing</label>
               <select v-model="settings.api.routing">
                 <option value="manual">Manual (tiered)</option>
                 <option value="auto">Automatic (by complexity)</option>
               </select>
             </div>
-            <div class="field">
+            <div class="field span-3">
               <label>Classify model (auto)</label>
               <select v-model="settings.api.classifyModel">
                 <option v-for="m in MODELS" :key="m.id" :value="m.id">{{ m.label }}</option>
@@ -40,8 +40,8 @@ const STYLES = ['spoken', 'chime', 'both'];
             </div>
           </div>
 
-          <div class="field-row" style="margin-top: 0.7rem">
-            <div class="field">
+          <div class="eng-row">
+            <div class="field span-2">
               <label>Solve model</label>
               <select v-model="settings.api.solveModel">
                 <option v-for="m in MODELS" :key="m.id" :value="m.id">{{ m.label }}</option>
@@ -53,7 +53,7 @@ const STYLES = ['spoken', 'chime', 'both'];
                 <option v-for="e in EFFORTS" :key="e" :value="e">{{ e }}</option>
               </select>
             </div>
-            <div class="field">
+            <div class="field span-2">
               <label>Confirm model</label>
               <select v-model="settings.api.confirmModel">
                 <option v-for="m in MODELS" :key="m.id" :value="m.id">{{ m.label }}</option>
@@ -67,9 +67,9 @@ const STYLES = ['spoken', 'chime', 'both'];
             </div>
           </div>
 
-          <div class="field-row" style="margin-top: 0.7rem">
-            <div class="field">
-              <label>Routine verify model (the cheap pass)</label>
+          <div class="eng-row">
+            <div class="field span-2">
+              <label>Verify model (cheap)</label>
               <select v-model="settings.api.verifyModel">
                 <option v-for="m in MODELS" :key="m.id" :value="m.id">{{ m.label }}</option>
               </select>
@@ -80,18 +80,18 @@ const STYLES = ['spoken', 'chime', 'both'];
                 <option v-for="e in EFFORTS" :key="e" :value="e">{{ e }}</option>
               </select>
             </div>
-            <div class="field">
+            <div class="field span-3">
               <label>Max tokens</label>
               <input v-model.number="settings.api.maxTokens" type="number" min="256" step="256" />
             </div>
           </div>
 
-          <div class="field-row" style="margin-top: 0.7rem">
-            <div class="field">
+          <div class="eng-row">
+            <div class="field span-2">
               <label>Image long edge (px)</label>
               <input v-model.number="settings.export.maxEdgePx" type="number" min="256" step="64" />
             </div>
-            <div class="field">
+            <div class="field span-2">
               <label>JPEG quality — {{ settings.export.jpegQuality }}</label>
               <input
                 v-model.number="settings.export.jpegQuality"
@@ -101,23 +101,23 @@ const STYLES = ['spoken', 'chime', 'both'];
                 step="0.05"
               />
             </div>
-            <div class="field">
+            <div class="field span-2">
               <label>Crop padding (px)</label>
               <input v-model.number="settings.export.paddingPx" type="number" min="0" step="4" />
             </div>
           </div>
 
-          <div class="field-row" style="margin-top: 0.7rem">
-            <div class="field">
+          <div class="eng-row">
+            <div class="field span-2">
               <label>Re-check after (strokes)</label>
               <input v-model.number="settings.scan.minNewStrokes" type="number" min="1" step="1" />
             </div>
-            <div class="field">
+            <div class="field span-2">
               <label>Idle flush (ms)</label>
               <input v-model.number="settings.scan.idleFlushMs" type="number" min="1000" step="500" />
             </div>
-            <div class="field">
-              <label>Auto-clear on correct (s, 0 = off)</label>
+            <div class="field span-2">
+              <label>Auto-clear (s, 0 = off)</label>
               <input v-model.number="settings.scan.autoClearSec" type="number" min="0" step="1" />
             </div>
           </div>

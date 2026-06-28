@@ -399,6 +399,39 @@ label {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 0.7rem;
+  align-items: end;
+}
+
+/* Engine settings: a shared 6-column grid so fields line up across rows
+   regardless of how many sit in a row, with inputs bottom-aligned so a
+   two-line label never pushes its control out of line. */
+.eng-row {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 0.7rem;
+  align-items: end;
+}
+
+.eng-row + .eng-row {
+  margin-top: 0.7rem;
+}
+
+.eng-row .span-2 {
+  grid-column: span 2;
+}
+
+.eng-row .span-3 {
+  grid-column: span 3;
+}
+
+@media (max-width: 600px) {
+  .eng-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .eng-row .span-2,
+  .eng-row .span-3 {
+    grid-column: span 1;
+  }
 }
 
 .preset {
