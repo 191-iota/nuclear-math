@@ -1,34 +1,41 @@
 :root {
-  --bg: #fafaf8;
+  /* Neutral light grey base (kept off the warm-cream palette on purpose),
+     near-black ink, and a single muted-gold accent — the "nuclear" spark,
+     used only for the atom nucleus and the token-output bar. */
+  --bg: #f4f4f1;
   --panel: #ffffff;
-  --panel-2: #f4f2ec;
-  --ink: #1a1a1a;
-  --muted: #6b6b66;
-  --border: #e3e1da;
-  --accent: #1a1a1a;
-  --accent-ink: #fafaf8;
-  --chart-in: #b6bcbf;
-  --chart-out: #d2873c;
-  --good: #3f7d4f;
-  --bad: #b4502f;
+  --panel-2: #efeee9;
+  --ink: #1a1915;
+  --muted: #6c6a60;
+  --border: #e3e2db;
+  --accent: #1a1915;
+  --accent-ink: #f4f4f1;
+  --gold: #c39a27;
+  --chart-in: #c4c2b8;
+  --chart-out: #c39a27;
+  --good: #4a7a4f;
+  --bad: #b1492f;
   --radius: 0.5rem;
   --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   --sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
 }
 
 [data-theme='dark'] {
-  --bg: #1a1916;
-  --panel: #232220;
-  --panel-2: #2c2a27;
-  --ink: #f0efe9;
-  --muted: #9b988e;
-  --border: #34322c;
-  --accent: #f0efe9;
-  --accent-ink: #1a1916;
-  --chart-in: #565f64;
-  --chart-out: #d9954a;
-  --good: #6fae7c;
-  --bad: #d98062;
+  /* Warm charcoal (not pure black) so the muted gold reads as a refined
+     amber accent rather than a high-contrast neon. */
+  --bg: #16150f;
+  --panel: #1f1d15;
+  --panel-2: #28251b;
+  --ink: #ece9dd;
+  --muted: #9b988a;
+  --border: #322f24;
+  --accent: #ece9dd;
+  --accent-ink: #16150f;
+  --gold: #d8b24a;
+  --chart-in: #5a584c;
+  --chart-out: #d8b24a;
+  --good: #74ad79;
+  --bad: #d27f62;
 }
 
 * {
@@ -182,10 +189,20 @@ label {
 }
 
 .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
   font-family: var(--mono);
   font-weight: 600;
   font-size: 0.85rem;
   letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.brand-mark {
+  width: 1.2rem;
+  height: 1.2rem;
+  flex: none;
 }
 
 .brand-dim {

@@ -17,7 +17,17 @@ const tabs: { id: View; label: string }[] = [
 <template>
   <div class="shell">
     <header class="topnav">
-      <span class="brand">nuclear<span class="brand-dim">·learning</span></span>
+      <span class="brand">
+        <svg class="brand-mark" viewBox="0 0 64 64" aria-hidden="true">
+          <g fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round">
+            <ellipse cx="32" cy="32" rx="27" ry="10.5" />
+            <ellipse cx="32" cy="32" rx="27" ry="10.5" transform="rotate(60 32 32)" />
+            <ellipse cx="32" cy="32" rx="27" ry="10.5" transform="rotate(120 32 32)" />
+          </g>
+          <circle cx="32" cy="32" r="4.8" fill="var(--gold)" />
+        </svg>
+        nuclear<span class="brand-dim">·learning</span>
+      </span>
       <nav class="tabs">
         <button
           v-for="t in tabs"

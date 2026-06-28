@@ -1,17 +1,10 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/hero-dark.png">
-    <img alt="nuclear-learning — write on paper, read and checked the moment you pause" src="docs/hero-light.png" width="880">
-  </picture>
+  <img src="docs/banner.png" alt="nuclear·learning — write on paper, get the correction the moment you pause" width="100%">
 </p>
 
-<p align="center">
-  <img src="https://img.shields.io/badge/license-MIT-1a1a1a?style=flat-square" alt="MIT license">&nbsp;
-  <img src="https://img.shields.io/badge/Vue-3-1a1a1a?style=flat-square" alt="Vue 3">&nbsp;
-  <img src="https://img.shields.io/badge/TypeScript-strict-1a1a1a?style=flat-square" alt="TypeScript strict">&nbsp;
-  <img src="https://img.shields.io/badge/Claude-vision-cc785c?style=flat-square" alt="Claude vision">&nbsp;
-  <img src="https://img.shields.io/badge/Web%20Bluetooth-Chrome%20%2F%20Edge-1a1a1a?style=flat-square" alt="Web Bluetooth, Chrome or Edge">
-</p>
+# nuclear-learning
+
+![Vue 3](https://img.shields.io/badge/Vue-3-1a1915?style=flat-square) ![TypeScript](https://img.shields.io/badge/TypeScript-strict-1a1915?style=flat-square) ![Claude vision](https://img.shields.io/badge/Claude-vision-c39a27?style=flat-square) ![Web Bluetooth](https://img.shields.io/badge/Web%20Bluetooth-Chrome%20%2F%20Edge-1a1915?style=flat-square)
 
 > You antisocial folks will particularly like this one
 

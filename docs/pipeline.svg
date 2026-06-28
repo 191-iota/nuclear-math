@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 200" font-family="'IBM Plex Sans', system-ui, -apple-system, sans-serif">
-  <rect x="0" y="0" width="880" height="200" rx="14" fill="#fafaf8"/>
+  <rect x="0" y="0" width="880" height="200" rx="14" fill="#f4f4f1"/>
 
   <!-- nodes -->
   <rect x="24"  y="92" width="160" height="48" rx="10" fill="#ffffff" stroke="#e3e1da" stroke-width="1.5"/>
@@ -8,8 +8,9 @@
   <rect x="248" y="92" width="160" height="48" rx="10" fill="#ffffff" stroke="#e3e1da" stroke-width="1.5"/>
   <text x="328" y="121" text-anchor="middle" font-size="16" fill="#1a1a1a">Canvas</text>
 
-  <rect x="472" y="92" width="160" height="48" rx="10" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.8"/>
-  <text x="552" y="121" text-anchor="middle" font-size="16" fill="#1a1a1a">Claude · vision</text>
+  <rect x="472" y="92" width="160" height="48" rx="10" fill="#ffffff" stroke="#c39a27" stroke-width="1.8"/>
+  <circle cx="492" cy="116" r="3" fill="#c39a27"/>
+  <text x="560" y="121" text-anchor="middle" font-size="16" fill="#1a1915">Claude · vision</text>
 
   <rect x="696" y="92" width="160" height="48" rx="10" fill="#ffffff" stroke="#e3e1da" stroke-width="1.5"/>
   <text x="776" y="121" text-anchor="middle" font-size="16" fill="#1a1a1a">Voice · chime</text>
