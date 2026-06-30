@@ -1,13 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import {
-  perDay,
-  usageSummary,
-  byRole,
-  byModel,
-  clearUsage,
-  type DayStat,
-} from '@/stores/usage';
+import { perDay, usageSummary, byRole, byModel, clearUsage } from '@/stores/usage';
 
 type Metric = 'cost' | 'tokens';
 const metric = ref<Metric>('cost');
@@ -15,29 +8,41 @@ const metric = ref<Metric>('cost');
 // All reactive off the usage records + the model prices, so everything recomputes
 // live as scans land and as you change a model or its price in Presets.
 const summary = computed(() => usageSummary());
-const days = computed(() => perDay());
 const roles = computed(() => byRole());
 const models = computed(() => byModel());
 
-const maxVal = computed(() =>
-  Math.max(
-    1e-9,
-    ...days.value.map((s) => (metric.value === 'cost' ? s.costUSD : s.input + s.output)),
-  ),
+// Cumulative spend over time. A running total fills the width smoothly at any number
+// of days and is never dominated by one big day, unlike per-day or per-problem bars.
+const VW = 1000;
+const VH = 240;
+const series = computed(() => {
+  const ds = perDay(100000); // effectively all days
+  let cum = 0;
+  return ds.map((d) => {
+    const add = metric.value === 'cost' ? d.costUSD : d.input + d.output;
+    cum += add;
+    return { day: d.day, cum, dayVal: add };
+  });
+});
+const maxCum = computed(() => Math.max(1e-9, ...series.value.map((p) => p.cum)));
+const pts = computed(() => {
+  const s = series.value;
+  const n = s.length;
+  return s.map((p, i) => ({
+    x: n <= 1 ? VW : (i / (n - 1)) * VW,
+    y: VH - (p.cum / maxCum.value) * VH,
+  }));
+});
+const linePath = computed(() =>
+  pts.value.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' '),
 );
-
-function segOut(s: DayStat): number {
-  return metric.value === 'cost' ? s.outputCostUSD : s.output;
-}
-function segIn(s: DayStat): number {
-  return metric.value === 'cost' ? s.inputCostUSD : s.input;
-}
-function fill(s: DayStat): number {
-  return Math.max(0, maxVal.value - segOut(s) - segIn(s));
-}
-function grow(v: number): number {
-  return (v / maxVal.value) * 100;
-}
+const areaPath = computed(() => {
+  const ps = pts.value;
+  if (ps.length < 2) return '';
+  const first = ps[0].x.toFixed(1);
+  const last = ps[ps.length - 1].x.toFixed(1);
+  return `M${first},${VH} ${linePath.value.slice(1)} L${last},${VH} Z`;
+});
 
 function usd(n: number): string {
   return '$' + (n >= 1 ? n.toFixed(2) : n.toFixed(3));
@@ -45,7 +50,6 @@ function usd(n: number): string {
 function tok(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 }
-// Share of total cost, for the breakdown bars.
 function share(costUSD: number): number {
   return summary.value.estCostUSD > 0 ? (costUSD / summary.value.estCostUSD) * 100 : 0;
 }
@@ -53,9 +57,10 @@ function dayLabel(dayNum: number): string {
   const d = new Date(dayNum * 86_400_000);
   return `${d.getMonth() + 1}/${d.getDate()}`;
 }
-function tip(s: DayStat): string {
-  return `${dayLabel(s.day)} · ${s.scans} scans\n${tok(s.input)} in · ${tok(s.output)} out · ${usd(s.costUSD)}`;
-}
+const firstLabel = computed(() => (series.value.length ? dayLabel(series.value[0].day) : ''));
+const totalLabel = computed(() =>
+  metric.value === 'cost' ? usd(summary.value.estCostUSD) : tok(summary.value.tokensTotal),
+);
 </script>
 
 <template>
@@ -119,34 +124,35 @@ function tip(s: DayStat): string {
       </div>
 
       <div class="card">
-        <div class="row" style="margin-bottom: 0.2rem">
-          <strong style="font-size: 0.85rem">{{ metric === 'cost' ? 'Cost' : 'Tokens' }} over time</strong>
+        <div class="row" style="margin-bottom: 0.5rem">
+          <strong style="font-size: 0.85rem">{{ metric === 'cost' ? 'Spend' : 'Tokens' }} over time</strong>
+          <span class="muted mono" style="font-size: 0.72rem; margin-left: 0.5rem">{{ totalLabel }} total</span>
           <span class="spacer" />
           <div class="tabs">
             <button class="tab" :class="{ active: metric === 'cost' }" @click="metric = 'cost'">Cost</button>
             <button class="tab" :class="{ active: metric === 'tokens' }" @click="metric = 'tokens'">Tokens</button>
           </div>
         </div>
-        <div class="chart">
-          <div v-for="(s, i) in days" :key="s.day" class="bar-col" :title="tip(s)">
-            <div class="bar-track">
-              <div class="seg-fill" :style="{ flexGrow: grow(fill(s)) }" />
-              <div class="seg seg-out" :style="{ flexGrow: grow(segOut(s)) }" />
-              <div class="seg seg-in" :style="{ flexGrow: grow(segIn(s)) }" />
-            </div>
-            <div class="bar-label">{{ i === days.length - 1 ? 'today' : i === 0 ? dayLabel(s.day) : '' }}</div>
+        <template v-if="pts.length >= 2">
+          <svg class="trend" :viewBox="`0 0 ${VW} ${VH}`" preserveAspectRatio="none" aria-hidden="true">
+            <path :d="areaPath" class="t-area" />
+            <path :d="linePath" class="t-line" />
+          </svg>
+          <div class="t-axis mono">
+            <span>{{ firstLabel }}</span>
+            <span class="spacer" />
+            <span>today</span>
           </div>
-        </div>
-        <div class="legend">
-          <span><span class="dot" style="background: var(--chart-in)" />Input (image + prompt)</span>
-          <span><span class="dot" style="background: var(--chart-out)" />Output (thinking + reply)</span>
-        </div>
+        </template>
+        <p v-else class="muted" style="font-size: 0.72rem; margin-top: 0.4rem">
+          The trend appears after a second day of use. Today's total is in the cards above.
+        </p>
       </div>
 
       <p class="muted" style="font-size: 0.72rem; margin-top: 0.8rem">
-        Each bar is one day you used it, the most recent 30. Lifetime totals are in the cards above, so
-        this stays bounded however many problems you do. Prices come from the model rates in Presets,
-        so changing a model re-prices history instantly. Solve and confirm also carry the skill tagging
+        The line is your running total, so it only ever climbs and stays readable however long you use
+        it. Lifetime figures are in the cards above. Prices come from the model rates in Presets, so
+        changing a model re-prices history instantly. Solve and confirm also carry the skill tagging
         that feeds Progress, so it rides those rows rather than adding its own; lesson cards are the one
         separate call, on Sonnet, written once per mistake you fix.
       </p>
@@ -209,5 +215,31 @@ function tip(s: DayStat): string {
   text-align: right;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+}
+
+.trend {
+  width: 100%;
+  height: 150px;
+  display: block;
+}
+
+.t-area {
+  fill: var(--chart-out);
+  opacity: 0.14;
+}
+
+.t-line {
+  fill: none;
+  stroke: var(--chart-out);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.t-axis {
+  display: flex;
+  font-size: 0.66rem;
+  color: var(--muted);
+  margin-top: 0.35rem;
 }
 </style>
