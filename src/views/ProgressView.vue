@@ -19,6 +19,24 @@ const ranks = computed(() => rankings());
 const selectedDomain = ref('');
 const traj = computed(() => (selectedDomain.value ? trajectory(selectedDomain.value) : []));
 
+// Mastery trajectory as a line. y is the 0-100 mastery index, so y = 100 - pct maps
+// straight into the 0..100 viewBox; x is evenly spaced across the days.
+const VW = 1000;
+const VH = 100;
+const trajPts = computed(() => {
+  const t = traj.value;
+  const n = t.length;
+  return t.map((p, i) => ({ x: n <= 1 ? VW : (i / (n - 1)) * VW, y: VH - p.masteryPct }));
+});
+const trajLine = computed(() =>
+  trajPts.value.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' '),
+);
+const trajArea = computed(() => {
+  const ps = trajPts.value;
+  if (ps.length < 2) return '';
+  return `M${ps[0].x.toFixed(1)},${VH} ${trajLine.value.slice(1)} L${ps[ps.length - 1].x.toFixed(1)},${VH} Z`;
+});
+
 onMounted(() => {
   // Open on the weakest touched domain, so the trajectory and lists are populated.
   selectedDomain.value = summary.value.weakest?.domain ?? touchedDomains.value[0]?.domain ?? '';
@@ -121,18 +139,21 @@ function domTip(d: DomainRollup): string {
             {{ d.domain }}
           </button>
         </div>
-        <div v-if="traj.length >= 2" class="chart" style="margin-top: 0.6rem">
-          <div v-for="(p, i) in traj" :key="i" class="bar-col" :title="`+${i}d · ${p.masteryPct}%`">
-            <div class="bar-track">
-              <div class="seg-fill" :style="{ flexGrow: 100 - p.masteryPct }" />
-              <div class="seg-out" :style="{ flexGrow: p.masteryPct }" />
-            </div>
-            <div class="bar-label">{{ i === traj.length - 1 ? 'now' : '' }}</div>
+        <template v-if="traj.length >= 2">
+          <svg class="trend" :viewBox="`0 0 ${VW} ${VH}`" preserveAspectRatio="none" aria-hidden="true">
+            <line class="t-grid" x1="0" :y1="VH / 2" :x2="VW" :y2="VH / 2" />
+            <path :d="trajArea" class="t-area" />
+            <path :d="trajLine" class="t-line" />
+          </svg>
+          <div class="t-axis mono">
+            <span>{{ traj.length }} days</span>
+            <span class="spacer" />
+            <span>now {{ traj[traj.length - 1].masteryPct }}%</span>
           </div>
-        </div>
+        </template>
         <p v-else class="muted" style="font-size: 0.72rem; margin-top: 0.6rem">
-          Not enough history yet for a trajectory. Each bar will be one day. Level is demonstrated
-          mastery and stays sticky, so going rusty shows as fading rather than a falling bar.
+          A line builds here once this domain has two days of practice. Level is demonstrated mastery
+          and stays sticky, so going rusty shows as the line drifting down, not a sudden drop.
         </p>
       </div>
 
@@ -276,5 +297,38 @@ function domTip(d: DomainRollup): string {
 
 .small {
   font-size: 0.74rem;
+}
+
+.trend {
+  width: 100%;
+  height: 150px;
+  display: block;
+  margin-top: 0.5rem;
+}
+
+.t-grid {
+  stroke: var(--border);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.t-area {
+  fill: var(--gold);
+  opacity: 0.13;
+}
+
+.t-line {
+  fill: none;
+  stroke: var(--gold);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.t-axis {
+  display: flex;
+  font-size: 0.66rem;
+  color: var(--muted);
+  margin-top: 0.35rem;
 }
 </style>
