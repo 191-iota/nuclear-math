@@ -136,6 +136,41 @@ export function perPage(): PageStat[] {
   return stats;
 }
 
+const DAY = 86_400_000;
+
+// Cost over time, one bucket per calendar day, capped to the most recent `maxDays`
+// active days. Unlike per-problem this stays bounded however many problems you do.
+export interface DayStat {
+  day: number; // floor(ts / DAY)
+  input: number;
+  output: number;
+  inputCostUSD: number;
+  outputCostUSD: number;
+  costUSD: number;
+  scans: number;
+}
+
+export function perDay(maxDays = 30): DayStat[] {
+  const byDay = new Map<number, DayStat>();
+  for (const r of usage.records) {
+    const day = Math.floor((r.ts ?? 0) / DAY);
+    let s = byDay.get(day);
+    if (!s) {
+      s = { day, input: 0, output: 0, inputCostUSD: 0, outputCostUSD: 0, costUSD: 0, scans: 0 };
+      byDay.set(day, s);
+    }
+    const info = modelInfo(recModel(r));
+    s.scans += 1;
+    s.input += r.input;
+    s.output += r.output;
+    s.inputCostUSD += (r.input * info.in) / 1e6;
+    s.outputCostUSD += (r.output * info.out) / 1e6;
+  }
+  const out = [...byDay.values()].sort((a, b) => a.day - b.day);
+  for (const s of out) s.costUSD = s.inputCostUSD + s.outputCostUSD;
+  return out.slice(-maxDays);
+}
+
 // Cost split by purpose (solve / verify / confirm / classify / lesson card), so the
 // dashboard can show where the money actually goes and surface the lesson-card spend.
 export interface RoleStat {
@@ -229,6 +264,7 @@ if (typeof window !== 'undefined') {
     records: () => usage.records.slice(),
     summary: usageSummary,
     perPage,
+    perDay,
     byRole,
     byModel,
     clear: clearUsage,

@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import {
-  perPage,
+  perDay,
   usageSummary,
   byRole,
   byModel,
   clearUsage,
-  type PageStat,
+  type DayStat,
 } from '@/stores/usage';
 
 type Metric = 'cost' | 'tokens';
@@ -15,24 +15,24 @@ const metric = ref<Metric>('cost');
 // All reactive off the usage records + the model prices, so everything recomputes
 // live as scans land and as you change a model or its price in Presets.
 const summary = computed(() => usageSummary());
-const stats = computed(() => perPage());
+const days = computed(() => perDay());
 const roles = computed(() => byRole());
 const models = computed(() => byModel());
 
 const maxVal = computed(() =>
   Math.max(
     1e-9,
-    ...stats.value.map((s) => (metric.value === 'cost' ? s.costUSD : s.input + s.output)),
+    ...days.value.map((s) => (metric.value === 'cost' ? s.costUSD : s.input + s.output)),
   ),
 );
 
-function segOut(s: PageStat): number {
+function segOut(s: DayStat): number {
   return metric.value === 'cost' ? s.outputCostUSD : s.output;
 }
-function segIn(s: PageStat): number {
+function segIn(s: DayStat): number {
   return metric.value === 'cost' ? s.inputCostUSD : s.input;
 }
-function fill(s: PageStat): number {
+function fill(s: DayStat): number {
   return Math.max(0, maxVal.value - segOut(s) - segIn(s));
 }
 function grow(v: number): number {
@@ -49,8 +49,12 @@ function tok(n: number): string {
 function share(costUSD: number): number {
   return summary.value.estCostUSD > 0 ? (costUSD / summary.value.estCostUSD) * 100 : 0;
 }
-function tip(s: PageStat): string {
-  return `Problem ${s.page} · ${s.scans} scans\n${tok(s.input)} in · ${tok(s.output)} out · ${usd(s.costUSD)}`;
+function dayLabel(dayNum: number): string {
+  const d = new Date(dayNum * 86_400_000);
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+function tip(s: DayStat): string {
+  return `${dayLabel(s.day)} · ${s.scans} scans\n${tok(s.input)} in · ${tok(s.output)} out · ${usd(s.costUSD)}`;
 }
 </script>
 
@@ -116,7 +120,7 @@ function tip(s: PageStat): string {
 
       <div class="card">
         <div class="row" style="margin-bottom: 0.2rem">
-          <strong style="font-size: 0.85rem">{{ metric === 'cost' ? 'Cost' : 'Tokens' }} per problem</strong>
+          <strong style="font-size: 0.85rem">{{ metric === 'cost' ? 'Cost' : 'Tokens' }} over time</strong>
           <span class="spacer" />
           <div class="tabs">
             <button class="tab" :class="{ active: metric === 'cost' }" @click="metric = 'cost'">Cost</button>
@@ -124,13 +128,13 @@ function tip(s: PageStat): string {
           </div>
         </div>
         <div class="chart">
-          <div v-for="s in stats" :key="s.page" class="bar-col" :title="tip(s)">
+          <div v-for="(s, i) in days" :key="s.day" class="bar-col" :title="tip(s)">
             <div class="bar-track">
               <div class="seg-fill" :style="{ flexGrow: grow(fill(s)) }" />
               <div class="seg seg-out" :style="{ flexGrow: grow(segOut(s)) }" />
               <div class="seg seg-in" :style="{ flexGrow: grow(segIn(s)) }" />
             </div>
-            <div class="bar-label">{{ s.page }}</div>
+            <div class="bar-label">{{ i === days.length - 1 ? 'today' : i === 0 ? dayLabel(s.day) : '' }}</div>
           </div>
         </div>
         <div class="legend">
@@ -140,11 +144,11 @@ function tip(s: PageStat): string {
       </div>
 
       <p class="muted" style="font-size: 0.72rem; margin-top: 0.8rem">
-        Each bar is one Clear-to-Clear problem, priced from the model rates in Presets, so changing a
-        model re-prices history instantly. A strong model solves and signs off; a cheaper one runs the
-        repetitive middle checks. Solve and confirm also carry the skill tagging that feeds Progress, so
-        it rides those rows rather than adding its own. Lesson cards are the one separate call, on
-        Sonnet, written once per mistake you fix.
+        Each bar is one day you used it, the most recent 30. Lifetime totals are in the cards above, so
+        this stays bounded however many problems you do. Prices come from the model rates in Presets,
+        so changing a model re-prices history instantly. Solve and confirm also carry the skill tagging
+        that feeds Progress, so it rides those rows rather than adding its own; lesson cards are the one
+        separate call, on Sonnet, written once per mistake you fix.
       </p>
     </template>
 
