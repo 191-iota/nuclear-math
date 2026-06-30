@@ -1,15 +1,23 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { perPage, usageSummary, clearUsage, type PageStat } from '@/stores/usage';
-import { settings } from '@/stores/settings';
+import {
+  perPage,
+  usageSummary,
+  byRole,
+  byModel,
+  clearUsage,
+  type PageStat,
+} from '@/stores/usage';
 
 type Metric = 'cost' | 'tokens';
 const metric = ref<Metric>('cost');
 
-// These read reactive sources (usage records + settings prices) so they recompute
-// live as scans land and as you change the model/prices in Presets.
+// All reactive off the usage records + the model prices, so everything recomputes
+// live as scans land and as you change a model or its price in Presets.
 const summary = computed(() => usageSummary());
 const stats = computed(() => perPage());
+const roles = computed(() => byRole());
+const models = computed(() => byModel());
 
 const maxVal = computed(() =>
   Math.max(
@@ -27,8 +35,6 @@ function segIn(s: PageStat): number {
 function fill(s: PageStat): number {
   return Math.max(0, maxVal.value - segOut(s) - segIn(s));
 }
-// Normalise to flex-grow factors that sum to 100 per bar, keeps proportions and
-// avoids the CSS rule where grow factors summing to < 1 don't fill the track.
 function grow(v: number): number {
   return (v / maxVal.value) * 100;
 }
@@ -39,11 +45,12 @@ function usd(n: number): string {
 function tok(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 }
+// Share of total cost, for the breakdown bars.
+function share(costUSD: number): number {
+  return summary.value.estCostUSD > 0 ? (costUSD / summary.value.estCostUSD) * 100 : 0;
+}
 function tip(s: PageStat): string {
-  return (
-    `Page ${s.page} · ${s.scans} scans (${s.solves} solve / ${s.verifies} verify)\n` +
-    `${tok(s.input)} in · ${tok(s.output)} out · ${usd(s.costUSD)}`
-  );
+  return `Problem ${s.page} · ${s.scans} scans\n${tok(s.input)} in · ${tok(s.output)} out · ${usd(s.costUSD)}`;
 }
 </script>
 
@@ -51,19 +58,8 @@ function tip(s: PageStat): string {
   <section class="scroll">
     <div class="page-head">
       <h2>Usage</h2>
-      <span class="muted mono" style="font-size: 0.72rem">
-        solve {{ settings.api.solveModel.replace('claude-', '') }} · verify
-        {{ settings.api.verifyModel.replace('claude-', '') }}
-      </span>
+      <span class="muted mono" style="font-size: 0.72rem">estimated, priced per model</span>
       <span class="spacer" />
-      <div class="tabs">
-        <button class="tab" :class="{ active: metric === 'cost' }" @click="metric = 'cost'">
-          Cost
-        </button>
-        <button class="tab" :class="{ active: metric === 'tokens' }" @click="metric = 'tokens'">
-          Tokens
-        </button>
-      </div>
       <button class="ghost danger" @click="clearUsage">Clear log</button>
     </div>
 
@@ -72,7 +68,7 @@ function tip(s: PageStat): string {
         <div class="card stat">
           <div class="k">Est. cost</div>
           <div class="v">{{ usd(summary.estCostUSD) }}</div>
-          <div class="sub">{{ usd(summary.costPerPageUSD) }} / page</div>
+          <div class="sub">{{ usd(summary.costPerPageUSD) }} / problem</div>
         </div>
         <div class="card stat">
           <div class="k">Tokens</div>
@@ -80,21 +76,52 @@ function tip(s: PageStat): string {
           <div class="sub">{{ tok(summary.totals.input) }} in · {{ tok(summary.totals.output) }} out</div>
         </div>
         <div class="card stat">
-          <div class="k">Tokens / scan</div>
-          <div class="v">{{ tok(summary.tokensPerScan) }}</div>
-          <div class="sub">{{ summary.scans }} scans · {{ summary.pages }} pages</div>
+          <div class="k">Scans</div>
+          <div class="v">{{ summary.scans }}</div>
+          <div class="sub">{{ summary.pages }} problems</div>
         </div>
         <div class="card stat">
-          <div class="k">Solve : verify</div>
-          <div class="v">{{ summary.totals.solves }} : {{ summary.totals.verifies }}</div>
-          <div class="sub">cheap verifies vs full solves</div>
+          <div class="k">Lesson cards</div>
+          <div class="v">{{ usd(summary.lessons.costUSD) }}</div>
+          <div class="sub">{{ summary.lessons.count }} written</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="row" style="margin-bottom: 0.6rem">
+          <strong style="font-size: 0.85rem">Where it goes</strong>
+          <span class="spacer" />
+          <span class="muted mono" style="font-size: 0.68rem">by purpose, then by model</span>
+        </div>
+        <div class="userows">
+          <div v-for="r in roles" :key="r.role" class="userow">
+            <span class="ulabel">{{ r.label }}</span>
+            <span class="ucount muted mono">{{ r.count }}×</span>
+            <span class="utrack"><span class="ufill" :style="{ width: share(r.costUSD) + '%' }" /></span>
+            <span class="ucost mono">{{ usd(r.costUSD) }}</span>
+          </div>
+        </div>
+        <div
+          class="userows"
+          style="margin-top: 0.8rem; border-top: 1px solid var(--border); padding-top: 0.7rem"
+        >
+          <div v-for="m in models" :key="m.model" class="userow">
+            <span class="ulabel">{{ m.label }}</span>
+            <span class="ucount muted mono">{{ m.count }}×</span>
+            <span class="utrack"><span class="ufill model" :style="{ width: share(m.costUSD) + '%' }" /></span>
+            <span class="ucost mono">{{ usd(m.costUSD) }}</span>
+          </div>
         </div>
       </div>
 
       <div class="card">
         <div class="row" style="margin-bottom: 0.2rem">
-          <strong style="font-size: 0.85rem">{{ metric === 'cost' ? 'Cost' : 'Tokens' }} per page</strong>
+          <strong style="font-size: 0.85rem">{{ metric === 'cost' ? 'Cost' : 'Tokens' }} per problem</strong>
           <span class="spacer" />
+          <div class="tabs">
+            <button class="tab" :class="{ active: metric === 'cost' }" @click="metric = 'cost'">Cost</button>
+            <button class="tab" :class="{ active: metric === 'tokens' }" @click="metric = 'tokens'">Tokens</button>
+          </div>
         </div>
         <div class="chart">
           <div v-for="s in stats" :key="s.page" class="bar-col" :title="tip(s)">
@@ -107,14 +134,17 @@ function tip(s: PageStat): string {
           </div>
         </div>
         <div class="legend">
-          <span><span class="dot" style="background: var(--chart-in)" />Input (image + prompt, cheap)</span>
-          <span><span class="dot" style="background: var(--chart-out)" />Output (thinking + verdict, 5× price)</span>
+          <span><span class="dot" style="background: var(--chart-in)" />Input (image + prompt)</span>
+          <span><span class="dot" style="background: var(--chart-out)" />Output (thinking + reply)</span>
         </div>
       </div>
 
       <p class="muted" style="font-size: 0.72rem; margin-top: 0.8rem">
-        Each bar is one Clear-to-Clear page. Updates live as you write. Prices come from the model
-        rates in Presets, so changing model there re-prices history instantly.
+        Each bar is one Clear-to-Clear problem, priced from the model rates in Presets, so changing a
+        model re-prices history instantly. A strong model solves and signs off; a cheaper one runs the
+        repetitive middle checks. Solve and confirm also carry the skill tagging that feeds Progress, so
+        it rides those rows rather than adding its own. Lesson cards are the one separate call, on
+        Sonnet, written once per mistake you fix.
       </p>
     </template>
 
@@ -123,3 +153,57 @@ function tip(s: PageStat): string {
     </div>
   </section>
 </template>
+
+<style scoped>
+.userows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.userow {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.76rem;
+}
+
+.userow .ulabel {
+  flex: 0 0 6.5rem;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.userow .ucount {
+  flex: 0 0 2.6rem;
+  font-size: 0.7rem;
+  text-align: right;
+}
+
+.userow .utrack {
+  flex: 1;
+  height: 0.55rem;
+  background: var(--panel-2);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.userow .ufill {
+  display: block;
+  height: 100%;
+  background: var(--chart-out);
+}
+
+.userow .ufill.model {
+  background: var(--chart-in);
+}
+
+.userow .ucost {
+  flex: 0 0 3.6rem;
+  text-align: right;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+</style>

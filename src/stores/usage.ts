@@ -11,7 +11,16 @@ import { modelInfo } from '@/models';
  *
  * Console access:  __nlUsage.summary() · __nlUsage.records() · __nlUsage.clear()
  */
-export type Role = 'solve' | 'verify' | 'confirm' | 'classify';
+export type Role = 'solve' | 'verify' | 'confirm' | 'classify' | 'lesson';
+
+// Human labels for the per-purpose breakdown.
+export const ROLE_LABEL: Record<Role, string> = {
+  solve: 'Solve',
+  verify: 'Verify',
+  confirm: 'Confirm',
+  classify: 'Classify',
+  lesson: 'Lesson cards',
+};
 
 export interface UsageRecord {
   page: number;
@@ -127,19 +136,79 @@ export function perPage(): PageStat[] {
   return stats;
 }
 
+// Cost split by purpose (solve / verify / confirm / classify / lesson card), so the
+// dashboard can show where the money actually goes and surface the lesson-card spend.
+export interface RoleStat {
+  role: Role;
+  label: string;
+  count: number;
+  input: number;
+  output: number;
+  costUSD: number;
+}
+
+export function byRole(): RoleStat[] {
+  const m = new Map<Role, RoleStat>();
+  for (const r of usage.records) {
+    const role = recRole(r);
+    let s = m.get(role);
+    if (!s) {
+      s = { role, label: ROLE_LABEL[role] ?? role, count: 0, input: 0, output: 0, costUSD: 0 };
+      m.set(role, s);
+    }
+    const info = modelInfo(recModel(r));
+    s.count += 1;
+    s.input += r.input;
+    s.output += r.output;
+    s.costUSD += (r.input * info.in + r.output * info.out) / 1e6;
+  }
+  return [...m.values()].sort((a, b) => b.costUSD - a.costUSD);
+}
+
+export interface ModelStat {
+  model: string;
+  label: string;
+  count: number;
+  costUSD: number;
+}
+
+export function byModel(): ModelStat[] {
+  const m = new Map<string, ModelStat>();
+  for (const r of usage.records) {
+    const model = recModel(r);
+    const info = modelInfo(model);
+    let s = m.get(model);
+    if (!s) {
+      s = { model, label: info.label, count: 0, costUSD: 0 };
+      m.set(model, s);
+    }
+    s.count += 1;
+    s.costUSD += (r.input * info.in + r.output * info.out) / 1e6;
+  }
+  return [...m.values()].sort((a, b) => b.costUSD - a.costUSD);
+}
+
 export function usageSummary() {
   let input = 0;
   let output = 0;
   let solves = 0;
   let verifies = 0;
   let cost = 0;
+  let lessonCount = 0;
+  let lessonCost = 0;
   for (const r of usage.records) {
     const info = modelInfo(recModel(r));
+    const role = recRole(r);
     input += r.input;
     output += r.output;
-    if (recRole(r) === 'solve') solves += 1;
+    if (role === 'solve') solves += 1;
     else verifies += 1;
-    cost += (r.input * info.in + r.output * info.out) / 1e6;
+    const c = (r.input * info.in + r.output * info.out) / 1e6;
+    cost += c;
+    if (role === 'lesson') {
+      lessonCount += 1;
+      lessonCost += c;
+    }
   }
   const scans = usage.records.length;
   const pages = new Set(usage.records.map((r) => r.page)).size || 1;
@@ -151,6 +220,7 @@ export function usageSummary() {
     tokensPerScan: scans ? Math.round((input + output) / scans) : 0,
     estCostUSD: +cost.toFixed(4),
     costPerPageUSD: +(cost / pages).toFixed(4),
+    lessons: { count: lessonCount, costUSD: +lessonCost.toFixed(4) },
   };
 }
 
@@ -159,6 +229,8 @@ if (typeof window !== 'undefined') {
     records: () => usage.records.slice(),
     summary: usageSummary,
     perPage,
+    byRole,
+    byModel,
     clear: clearUsage,
   };
 }

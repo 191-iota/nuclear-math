@@ -80,7 +80,7 @@ export async function generateLessonCard(
     recordUsage({
       mode: input.mode ?? 'lesson-card',
       model: CARD_MODEL,
-      role: 'verify',
+      role: 'lesson',
       input: u.input_tokens ?? 0,
       output: u.output_tokens ?? 0,
       cacheRead: u.cache_read_input_tokens ?? 0,
