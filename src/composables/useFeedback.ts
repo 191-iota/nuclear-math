@@ -495,10 +495,10 @@ export function useFeedback() {
     );
     if (!isCorrect(r.verdict)) return r.verdict;
 
-    // The verify judged the answer finished and right: gpt-5.4 confirms at low effort before we say so.
+    // The verify judged the answer finished and right: gpt-5.4 confirms at medium effort before we say so.
     const c = await callModel(
       settings.api.confirmModel,
-      'low',
+      'medium',
       'confirm',
       data,
       mediaType,
