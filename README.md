@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/banner.png" alt="nuclear·learning, write on paper and get the correction the moment you pause" width="100%">
+  <img src="docs/banner.png" alt="nuclear·learning, write on paper and get the correction the moment you ask" width="100%">
 </p>
 
 # nuclear-learning
@@ -8,7 +8,7 @@
 
 > You antisocial folks will particularly like this one
 
-Real-time feedback for handwritten work. You write on paper with a Neo Smartpen. The strokes stream into the browser over Bluetooth, and a moment after you pause the page goes to Claude. It reads the page and tells you, spoken aloud or with a chime, whether it found a mistake. The hint is one line and names the first error. It does not give the answer, so you make the correction yourself and carry on.
+Real-time feedback for handwritten work. You write on paper with a Neo Smartpen. The strokes stream into the browser over Bluetooth, and the page is watched as you go. When you want a look you draw a small corner mark next to the line, and that mark is the only thing that asks for feedback. The page goes to Claude, which reads the flagged work and answers: a one-line spoken correction if something is off, or a quiet word that it is right. The hint names the first error and never gives the answer, so you make the fix yourself and carry on. Leave the mark off and it stays quiet, however much you write.
 
 <p align="center">
   <img src="docs/app.png" alt="the app: a problem on the pad with the app's hint in the status bar" width="880">
@@ -24,12 +24,12 @@ The same work starts on real Ncode paper, written with the Neo pen.
 
 ## Traditional vs. nuclear
 
-Most practice runs a slow loop. You finish a page, hand it in, and find out what went wrong much later, usually by reading the answer. This runs the loop while you write. The page is checked the moment you pause, and a one-line hint points at the error so you fix it and carry on.
+Most practice runs a slow loop. You finish a page, hand it in, and find out what went wrong much later, usually by reading the answer. This runs the loop while you write. You draw a corner mark by a line to ask for a check, a one-line hint points at the error, and you fix it and carry on.
 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/loop-dark.svg">
-    <img src="docs/loop.svg" alt="the traditional path: write a page, hand it in, get it marked later. the nuclear loop: write a line, get it checked, fix it, carry on" width="820">
+    <img src="docs/loop.svg" alt="the traditional path: write a page, hand it in, get it marked later. the nuclear loop: write a line, mark it, get it checked, fix it, carry on" width="820">
   </picture>
 </p>
 
@@ -40,16 +40,23 @@ The pen streams (x, y, pressure) points over Web Bluetooth. The app draws them o
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/pipeline-dark.svg">
-    <img src="docs/pipeline.svg" alt="Neo Smartpen to canvas to Claude vision to voice and chime" width="720">
+    <img src="docs/pipeline.svg" alt="Neo Smartpen to canvas to Claude vision to voice" width="720">
   </picture>
 </p>
 
-It stays quiet while your work is correct. A mistake interrupts you with a one-line spoken hint, and a finished, correct result with a single chime. The model solves the problem itself and verifies the answer before it judges, so it stays silent unless it is sure.
-
-When a solution is finished and right you get that single chime. Below, a quadratic that was written with a dropped sign, caught, corrected on the page, and confirmed.
+Most of the time it stays quiet and just follows along. You decide when you want a look by drawing a small corner mark, a right-angle hook, next to the line in question. That mark is the only trigger. Draw it and the app reads the flagged work and answers: a one-line spoken correction when something is off, or a quiet "that's correct" when it holds. A result underlined with a double line reads as a final answer you are handing in, so a mark on one asks it to check that answer, while a mark on work in progress asks for a look at where you are. It never gives the answer away, and a correct result is said out loud but not marked, so nothing declares the problem finished before you do.
 
 <p align="center">
-  <img src="docs/checked.png" alt="a handwritten quadratic solution the app has marked CORRECT" width="660">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/corner-dark.svg">
+    <img src="docs/corner.svg" alt="with no corner mark the app stays silent and only tracks progress; with a corner mark it speaks a correction if the work is wrong, or says it is correct without marking it" width="820">
+  </picture>
+</p>
+
+It reads the mathematics aloud as words rather than symbols, so a hint comes through as "x squared" or "the square root of two", and it does that in English or Swiss German depending on the mode. Below, a quadratic written with a dropped sign, caught, corrected on the page, and confirmed.
+
+<p align="center">
+  <img src="docs/checked.png" alt="a handwritten quadratic, corrected and confirmed" width="660">
 </p>
 
 ## Modes
@@ -69,7 +76,7 @@ To add one, append an object to `config/modes.json`, or build it in the Presets 
 }
 ```
 
-`feedbackStyle` is `"spoken"`, `"chime"`, or `"both"`. `debounceMs` is how long to wait after the last stroke before checking. `errorChecking` is `true` for grading modes, and `false` for read-only modes that should never be given error-detector context.
+`feedbackStyle` is `"spoken"`, `"chime"`, or `"both"`. `debounceMs` is how long to wait after the last stroke before checking. `errorChecking` is `true` for grading modes, and `false` for read-only modes that should never be given error-detector context. `cornerGated` holds a mode's comments until you draw a corner mark, the way the default math mode does; leave it off and the mode judges every scan on its own.
 
 ## The interface
 
@@ -79,7 +86,7 @@ The app is five tabs. The pad is where you work: connect the pen, choose a mode,
   <img src="docs/ui-pad.png" alt="the pad tab: a thin toolbar over a blank writing area" width="860">
 </p>
 
-Two of the other tabs look back at what you have done, and are described below: Lessons reviews the mistakes you fixed, and Progress tracks the skills behind your work. Usage logs every scan's token cost and charts it per page, so a change to a model or a setting moves the number live. It has a dark theme too.
+Two of the other tabs look back at what you have done, and are described below: Lessons reviews the mistakes you fixed, and Progress tracks the skills behind your work. Usage logs every scan's token cost and charts it per problem, so a change to a model or a setting moves the number live. It has a dark theme too.
 
 Presets is where the modes live. A mode's prompt, debounce, feedback style, and whether it caches a solved answer are all editable in place, with the engine settings, model, effort, image size, and prices, folded into the panel at the top. The defaults still come from `config/modes.json` and `config/settings.json`; this just edits them without a reload.
 
@@ -95,11 +102,22 @@ Review is active recall on a spacing schedule. A card shows the problem first, y
 
 ## Progress
 
-Every problem you solve says something about which skills you have, and Progress reads that signal. When a problem resolves, the same model call that signs off the result also tags the work against a fixed map of math skills, from the atomic ones like sign handling and rearranging up through the chain rule, Gaussian elimination, and proof by induction. There is no extra request, the tag rides a call that already runs.
+Every problem you solve says something about which skills you have, and Progress reads that signal. When a problem resolves, the same model call that signs off the result also tags the work against a fixed map of math skills, from the atomic ones like sign handling and rearranging up through the chain rule, Gaussian elimination, and proof by induction, marking each one as cleanly done, shaky, or wrong. There is no extra request, the tag rides a call that already runs.
 
-A skill rises when you use it cleanly, dips when you slip on it, and fades when you leave it untouched, the way recall actually behaves. The tab shows mastery by domain, how it moves over time, and three short lists: what to drill next, what is strongest, and what is going stale. A domain only reads as mastered once you have shown most of the skills in it, so working two of eighteen calculus skills does not light the whole bar.
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/skill-dark.svg">
+    <img src="docs/skill.svg" alt="a per-skill rating that climbs on clean solves, fades toward a coin-flip as it goes stale, and dips on a slip; on the right, coverage by domain that only fills once most skills are shown" width="820">
+  </picture>
+</p>
 
-All of it is a small local calculation over those tags, so it is free and updates live. It can be turned off in Presets if you would rather the model only grade.
+Underneath each skill is a rating that moves the way a chess rating does. A clean solve on a hard problem is worth more than one on an easy problem, and a mistake on a skill the problem leaned on costs more than a slip on one that was only incidental, so difficulty and role both weigh in. How far a single result moves the rating depends on how settled that skill already is: one you have barely used, or have not touched in weeks, is treated as unsettled and moves fast, while one you have shown many times holds steady through a single slip. The difficulty it weighs against is read from the problem itself, the model's own sense of it blended with how many steps the worked solution took, so the scale is grounded rather than assumed.
+
+On top of the rating sits memory. Each skill carries a half-life, and the number you see fades toward a coin flip as it goes stale, so a strength you have not exercised in a month reads as rusty rather than mastered. Spaced, clean practice stretches that half-life and a miss shortens it. Thin evidence is held back the same way: a skill seen once or twice stays provisional and sits near the middle until enough problems have run through it to be sure. The blame for a messy problem is shared across the skills it touched rather than charged in full to each, so one bad page cannot drag down every skill at once.
+
+The tab shows mastery by domain, the trend over time as one overall line across all your work with each domain available behind it, and three short lists: what to drill next, what is strongest, and what is going stale. A domain only reads as mastered once you have shown most of the skills in it, so working two of eighteen calculus skills does not light the whole bar.
+
+All of it is a small local calculation, a rating and a little bookkeeping per skill updated on each solve, so it is free and updates live. It can be turned off in Presets if you would rather the model only grade.
 
 ## What it costs
 
@@ -115,7 +133,14 @@ Nine scans of that page came to about nine cents.
   <img src="docs/cost.png" alt="usage for the page: 9 scans, 19.5k input and 796 output tokens, $0.089" width="300">
 </p>
 
-This holds because the work is split across models by how hard each part is. The first scan that can read a complete problem is solved once, in full, by the strong model, and the worked answer is kept as a short checklist. Every later scan compares the work so far against that checklist, so it runs on a cheaper, faster model. When that cheap pass thinks the answer is finished, the strong model takes one last look to confirm the result before the chime. If it disagrees, the strong model's hint is delivered instead, while the cheap pass keeps carrying the later scans and the strong model re-checks any future finish. The strong model runs twice, to work the problem out and to sign off the result, and the cheap one carries the repetitive middle. Those two strong calls also carry the skill tagging that feeds the Progress tab and the correction that feeds Lessons, so neither costs an extra request.
+This holds because the work is split across models by how hard each part is. The first scan that can read a complete problem is solved once, in full, by the strong model, and the worked answer is kept as a short checklist. Every later scan compares the work so far against that checklist, so it runs on a cheaper, faster model. When you mark a line and the cheap pass reads it as right, the strong model takes one last look to confirm before it speaks; if it disagrees, the strong model's hint is delivered instead while the cheap pass keeps carrying the later scans. The strong model runs twice, to work the problem out and to sign off the result, and the cheap one carries the repetitive middle. Those two strong calls also carry the skill tagging that feeds the Progress tab and the correction that feeds Lessons, so neither costs an extra request.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/routing-dark.svg">
+    <img src="docs/routing.svg" alt="the tiered flow: one Opus solve at the start, many cheap Sonnet verify scans through the middle, and one Opus confirm when you mark a line, before it speaks the verdict" width="820">
+  </picture>
+</p>
 
 Two things keep the scan count down. A scan only fires once enough new ink has arrived, so pausing to think spends nothing, and once a problem is solved it is never solved again. Most of what is left is input, the cropped image and the prompt re-sent on each scan, so a smaller image or fewer scans move the number more than anything on the output side.
 
@@ -123,7 +148,7 @@ A second routing mode is available, off by default. A quick classifier judges ea
 
 ## Staying coherent across a page
 
-A page is checked many times as you write, and the scans stay consistent across the page. The same correction is never replayed: a verdict is spoken or chimed only when it differs from the last one, so while you are still fixing "Step 3: check your sign" it stays on screen and stops talking. Each request also carries the verdicts already given as context, so Claude stays consistent with itself, never re-flagging a line it already confirmed and holding the same first unresolved error until you fix it. Feedback follows you to the problem you are on, so several problems can share a page (1a, 1b, 2) and it grades the lowest unfinished one. Requests run one at a time and in order, so verdicts never arrive out of sequence.
+A page is checked many times as you write, and the scans stay consistent across the page. The same correction is never replayed: a verdict is spoken or chimed only when it differs from the last one, so while you are still fixing "Step 3: check your sign" it stays on screen and stops talking. Each request also carries the verdicts already given as context, so Claude stays consistent with itself, never re-flagging a line it already confirmed and holding the same first unresolved error until you fix it. Feedback follows the mark, so several problems can share a page (1a, 1b, 2) and it looks at whichever line you flagged. Requests run one at a time and in order, so verdicts never arrive out of sequence.
 
 Pressing Clear wipes the pad and resets the page context for a clean start on the next problem. Switching mode resets the context the same way but keeps your drawing.
 

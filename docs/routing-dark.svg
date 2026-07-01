@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 236" font-family="'IBM Plex Sans', system-ui, -apple-system, sans-serif">
+<rect x="0" y="0" width="880" height="236" rx="14" fill="#16150f" stroke="none" stroke-width="0"/>
+<text x="40" y="34" text-anchor="start" font-size="13" fill="#d8b24a" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-weight="600" letter-spacing="0.04em">SPLIT ACROSS MODELS BY HOW HARD EACH SCAN IS</text>
+<rect x="28" y="90" width="140" height="52" rx="10" fill="#1f1d15" stroke="#d8b24a" stroke-width="1.8"/>
+<circle cx="46" cy="116" r="3.2" fill="#d8b24a"/>
+<text x="98.0" y="114" text-anchor="middle" font-size="16" fill="#ece9dd" font-family="'IBM Plex Sans', system-ui, -apple-system, sans-serif">solve</text>
+<text x="98.0" y="131" text-anchor="middle" font-size="10.5" fill="#9b988a" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace">Opus, once</text>
+<line x1="168" y1="116" x2="220" y2="116" stroke="#56534a" stroke-width="1.6"/><path d="M220 116 L213 112 L213 120 Z" fill="#56534a"/>
+<rect x="232" y="102" width="140" height="52" rx="10" fill="none" stroke="#322f24" stroke-width="1.2"/>
+<rect x="226" y="96" width="140" height="52" rx="10" fill="#1f1d15" stroke="#322f24" stroke-width="1.2"/>
+<rect x="220" y="90" width="140" height="52" rx="10" fill="#1f1d15" stroke="#322f24" stroke-width="1.4"/>
+<text x="290.0" y="114" text-anchor="middle" font-size="16" fill="#ece9dd" font-family="'IBM Plex Sans', system-ui, -apple-system, sans-serif">verify</text>
+<text x="290.0" y="131" text-anchor="middle" font-size="10.5" fill="#9b988a" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace">Sonnet, every scan</text>
+<text x="290.0" y="78" text-anchor="middle" font-size="12" fill="#9b988a" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace">× N</text>
+<line x1="360" y1="116" x2="456" y2="116" stroke="#d8b24a" stroke-width="1.6"/><path d="M456 116 L449 112 L449 120 Z" fill="#d8b24a"/>
+<path d="M408 96 L408 108 L420 108" fill="none" stroke="#d8b24a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="400" y="78" text-anchor="middle" font-size="10.5" fill="#d8b24a" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace">you mark a line</text>
+<rect x="456" y="90" width="140" height="52" rx="10" fill="#1f1d15" stroke="#d8b24a" stroke-width="1.8"/>
+<circle cx="474" cy="116" r="3.2" fill="#d8b24a"/>
+<text x="526.0" y="114" text-anchor="middle" font-size="16" fill="#ece9dd" font-family="'IBM Plex Sans', system-ui, -apple-system, sans-serif">confirm</text>
+<text x="526.0" y="131" text-anchor="middle" font-size="10.5" fill="#9b988a" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace">Opus, at the mark</text>
+<line x1="596" y1="116" x2="648" y2="116" stroke="#56534a" stroke-width="1.6"/><path d="M648 116 L641 112 L641 120 Z" fill="#56534a"/>
+<rect x="648" y="90" width="204" height="52" rx="10" fill="#1f1d15" stroke="#322f24" stroke-width="1.4"/>
+<text x="750" y="114" text-anchor="middle" font-size="14" fill="#ece9dd" font-family="'IBM Plex Sans', system-ui, -apple-system, sans-serif">speaks the verdict</text>
+<text x="750" y="131" text-anchor="middle" font-size="10.5" fill="#9b988a" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace">a correction, or “Correct”</text>
+<text x="440.0" y="210" text-anchor="middle" font-size="12.5" fill="#9b988a" font-family="'IBM Plex Sans', system-ui, -apple-system, sans-serif">one strong solve, one strong confirm; the cheap model carries the repetitive middle. Nine scans came to about nine cents.</text>
+</svg>
