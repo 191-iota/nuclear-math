@@ -24,7 +24,7 @@
   },
   "export": {
     "maxEdgePx": 2048,
-    "jpegQuality": 0.85,
+    "jpegQuality": 0.95,
     "paddingPx": 16
   },
   "scan": {
