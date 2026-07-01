@@ -75,15 +75,16 @@ const SKILL_SOLUTION_SCHEMA = {
 const GATE_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['questionReady', 'cornerMark'],
+  required: ['questionReady', 'cornerMark', 'difficulty'],
   properties: {
     questionReady: { type: 'boolean' },
     cornerMark: { type: 'boolean' },
+    difficulty: { enum: ['easy', 'medium', 'high'] },
   },
 };
 
 const GATE_PROMPT =
-  'You look at a photo of handwritten work and report TWO things as JSON, without solving or grading anything: (1) questionReady: whether the full problem statement the learner is working on is written out completely enough to be solved (the whole question, not just a label, a heading, or a half-written line); (2) cornerMark: whether the learner has drawn a CORNER MARK, a small hand-drawn right-angle hook (an L, a corner bracket, two short strokes meeting at a right angle) placed beside a line as a deliberate annotation, separate from the mathematics, and NOT a right angle that belongs to the work or an arrow used to redo a line. If you are unsure about either, report false for it. Reply with a JSON object {"questionReady": boolean, "cornerMark": boolean} and nothing else.';
+  'You look at a photo of handwritten work and report THREE things as JSON, without solving or grading anything: (1) questionReady: whether the full problem statement the learner is working on is written out completely enough to be solved (the whole question, not just a label, a heading, or a half-written line); (2) cornerMark: whether the learner has drawn a CORNER MARK, a small hand-drawn right-angle hook (an L, a corner bracket, two short strokes meeting at a right angle) placed beside a line as a deliberate annotation, separate from the mathematics, and NOT a right angle that belongs to the work or an arrow used to redo a line; (3) difficulty: how hard the posed problem is to solve, "easy" for a clear one- or two-step problem, "high" for a long or conceptually demanding one, and "medium" otherwise, preferring "medium" when unsure. If you are unsure about questionReady or cornerMark, report false for it. Reply with a JSON object {"questionReady": boolean, "cornerMark": boolean, "difficulty": "easy"|"medium"|"high"} and nothing else.';
 
 let client: Anthropic | null = null;
 
@@ -480,7 +481,7 @@ export function useFeedback() {
     data: string,
     mediaType: ImageMediaType,
     mode: Mode,
-  ): Promise<{ questionReady: boolean; cornerMark: boolean }> {
+  ): Promise<{ questionReady: boolean; cornerMark: boolean; difficulty: string }> {
     const model = settings.api.gateModel;
     try {
       const resp = await getClient().messages.create(
@@ -508,10 +509,16 @@ export function useFeedback() {
         .join('')
         .trim();
       const parsed = JSON.parse(out);
-      return { questionReady: parsed?.questionReady === true, cornerMark: parsed?.cornerMark === true };
+      const difficulty =
+        parsed?.difficulty === 'easy' || parsed?.difficulty === 'high' ? parsed.difficulty : 'medium';
+      return {
+        questionReady: parsed?.questionReady === true,
+        cornerMark: parsed?.cornerMark === true,
+        difficulty,
+      };
     } catch (err) {
       console.warn('[nuclear-learning] gate check failed, staying silent:', err);
-      return { questionReady: false, cornerMark: false };
+      return { questionReady: false, cornerMark: false, difficulty: 'medium' };
     }
   }
 
@@ -651,7 +658,7 @@ export function useFeedback() {
     // out (ready to solve) and whether a corner mark is present. It never grades the mathematics.
     const gate = mode.cornerGated
       ? await checkGate(data, mediaType, mode)
-      : { questionReady: true, cornerMark: true };
+      : { questionReady: true, cornerMark: true, difficulty: 'medium' };
 
     // PRE-SOLVE. The moment the whole question is on the page, solve it once on the strong model and
     // cache the checklist, so the first corner check is instant. The solve re-checks completeness
@@ -659,9 +666,18 @@ export function useFeedback() {
     // fully there), so a Haiku false start just leaves the cache empty and we try again. This also
     // grades the current work, but the corner gate keeps it silent unless a mark is present.
     if (cachedSolution === '' && gate.questionReady) {
+      // Route the solve by the gate's difficulty: an easy problem is solved on Sonnet, a medium one
+      // on Opus at low effort, a hard one on Opus at medium effort. So the strong model and its
+      // thinking budget scale with the problem instead of a flat Opus solve every time.
+      const tier =
+        gate.difficulty === 'easy'
+          ? { model: settings.api.verifyModel, effort: 'low' }
+          : gate.difficulty === 'high'
+            ? { model: settings.api.solveModel, effort: 'medium' }
+            : { model: settings.api.solveModel, effort: 'low' };
       const r = await callModel(
-        settings.api.solveModel,
-        settings.api.solveEffort,
+        tier.model,
+        tier.effort,
         'solve',
         data,
         mediaType,
