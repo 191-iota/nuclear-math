@@ -322,15 +322,15 @@ export function useFeedback() {
         'The correct solution to the current problem is:',
         cachedSolution,
         '',
-        'Judge the work RESULT-FIRST against the known solution: if a result the learner has settled on diverges, name the first diverging step, reading what the learner actually wrote rather than guessing a formula. Respond CORRECT ONLY when every sub-part label on the page (a, b, c, ...) has an answer, each answered sub-part carries its own clearly-marked result, and every error flagged earlier has been fixed; otherwise, with no diverging settled result, respond OK. Give no advice or encouragement of any kind. Do not re-derive; leave "solution" empty.',
-        'While a line, a calculation, or a redo is still being written, respond OK rather than flagging it; only judge a result the learner has settled on. A line the learner marked "falsch" or struck through and redirected with an arrow to a redo is finished business: NEVER report that mistake again, follow the arrow, and stay OK while the redo is in progress, judging it only once it reaches a settled result. Report any one correction only once, then stay OK while the learner works on the fix.',
+        'Judge the work RESULT-FIRST against the known solution: check every line the learner has fully written, and the moment a completed line or equality does not follow correctly from the line before it (a wrong manipulation, a sign error, a bad step), name that first diverging step in one short sentence, reading what the learner actually wrote rather than guessing a formula. Do NOT wait for a final answer to flag a clear mistake. Respond CORRECT ONLY when every sub-part label on the page (a, b, c, ...) has an answer, each answered sub-part carries its own clearly-marked result, and every error flagged earlier has been fixed; otherwise, when the work so far is correct, respond OK. Give no advice or encouragement of any kind. Do not re-derive; leave "solution" empty.',
+        'Respond OK only while the NEWEST line is still visibly being written (a partial, unfinished expression); once a line is fully written down, judge it. A line the learner marked "falsch" or struck through and redirected with an arrow to a redo is finished business: NEVER report that mistake again, follow the arrow, and stay OK while the redo is in progress. Report any one correction only once, then stay OK while the learner works on the fix.',
         'CORRECTION (stored for the learner\'s later review, never spoken): if your verdict is CORRECT and the earlier feedback above had flagged a mistake the learner has since fixed, fill `correction.wrong` with the specific error they made and `correction.right` with the corrected version, each ONE short line, writing every mathematical expression in LaTeX between single $ delimiters (for example $\\overline{a\\cdot b}=\\bar a+\\bar b$). This field is for review only, so naming the right answer here is fine and does not change your verdict. If there was no earlier mistake, leave both empty.',
       );
     } else {
       lines.push(
         'No solution has been worked out for the current problem yet. Identify the problem the learner is working on, solve it completely yourself, and return the full worked solution in "solution" with a short label in "problem" (work it out and keep it ready even on a scan where you stay silent). If the problem statement is still incomplete or you cannot determine it, leave "solution" empty.',
-        'Then grade the current work against the solution you just derived: name the first diverging step only for a result the learner has settled on; respond CORRECT ONLY when every sub-part is answered with its own clearly-marked result and every earlier error is fixed; otherwise OK. Give no advice.',
-        'While a line or a redo is still being written, respond OK. A line the learner marked "falsch" or struck through and redirected with an arrow to a redo is finished: do not report that mistake again, and stay OK until the redo reaches a settled result.',
+        'Then grade the current work against the solution you just derived: check every fully-written line, and the moment a completed line or equality does not follow correctly from the one before it, name that first diverging step; do not wait for a final answer to flag a clear mistake. Respond CORRECT ONLY when every sub-part is answered with its own clearly-marked result and every earlier error is fixed; otherwise, when the work so far is correct, OK. Give no advice.',
+        'Respond OK only while the newest line is still visibly being written. A line the learner marked "falsch" or struck through and redirected with an arrow to a redo is finished: do not report that mistake again, and stay OK while the redo is in progress.',
       );
     }
     lines.push(
@@ -643,6 +643,12 @@ export function useFeedback() {
     }
   }
 
+  // Whether the strong model has worked out and cached a solution for the current problem. Lets the
+  // UI tell "still solving (no reference yet)" apart from "solved, and the work so far looks fine".
+  function hasSolution(): boolean {
+    return cachedSolution !== '';
+  }
+
   return {
     getFeedback,
     recordVerdict,
@@ -653,5 +659,6 @@ export function useFeedback() {
     playChime,
     isCorrect,
     isQuiet,
+    hasSolution,
   };
 }

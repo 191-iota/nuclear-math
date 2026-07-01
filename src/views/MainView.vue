@@ -141,7 +141,11 @@ async function runFeedback() {
     feedback.recordVerdict(text);
     const played = feedback.deliver(text, activeMode.value);
     if (feedback.isQuiet(text)) {
-      lastFeedback.value = 'Looks good so far…';
+      // Distinguish "no solution cached yet" (the solve isn't producing one) from a real "looks
+      // fine so far" — otherwise both read identically and a failing solve looks like a pass.
+      lastFeedback.value = feedback.hasSolution()
+        ? 'Looks good so far…'
+        : 'Working out the solution…';
     } else if (played) {
       // Only refresh the shown correction when it actually spoke; a deduped repeat leaves it be.
       lastFeedback.value = feedback.describe(text, activeMode.value);
