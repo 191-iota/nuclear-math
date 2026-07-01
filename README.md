@@ -38,6 +38,17 @@ Cost stays low because the app only spends when there is something to do. On eve
   </picture>
 </p>
 
+## The full loop
+
+Every scan runs one pass through the same gate, and this is the whole of it, from a blank page to a solved problem. The cheap watcher decides whether anything expensive runs, the corner mark decides whether you hear about it, and the difficulty tier decides which model does the work. So an easy problem is graded from start to finish without ever touching Opus.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/flow-dark.svg">
+    <img src="docs/flow.svg" alt="the full math decision flow: a Haiku gate on every scan reads whether the question is set, whether a corner mark is drawn, and the difficulty; it pre-solves and caches once the question is complete, stays silent until there is a corner mark, then verifies on Sonnet and confirms on the difficulty tier, speaking a first-step correction, what is still open, or Correct before auto-clearing" width="720">
+  </picture>
+</p>
+
 ## What it remembers
 
 Every mistake you fix is kept as a review card, built from your own error and the worked solution already in hand, so you re-test the actual fix on a spacing schedule rather than a generic question bank. And every solved problem tags the skills behind it against a fixed map of maths, from sign handling up through the chain rule and proof by induction. Underneath, each skill carries a rating that climbs on a clean solve, fades toward a guess as it goes stale, and stays provisional until enough problems have run through it. None of it costs an extra request, and it can be turned off.
