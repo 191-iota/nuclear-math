@@ -433,48 +433,13 @@ export function useFeedback() {
     };
   }
 
-  // Sonnet watches the page and says whether the full question is written and ready to be solved, so
-  // the Opus solve only runs once there is a real, complete problem to work out and cache.
-  async function checkReady(data: string, mediaType: ImageMediaType, mode: Mode): Promise<boolean> {
-    const model = settings.api.verifyModel;
-    try {
-      const resp = await getClient().chat.completions.create(
-        {
-          model,
-          max_completion_tokens: 600,
-          reasoning_effort: 'low',
-          messages: [
-            {
-              role: 'system',
-              content:
-                'You look at a photo of handwritten math work and decide ONLY whether the full problem statement the learner is working on is written out completely enough to be solved (the whole question, not just a heading, a label, or a half-written line). Reply with EXACTLY ONE word: "ready" if it is, or "wait" if the question is still incomplete or you cannot tell.',
-            },
-            {
-              role: 'user',
-              content: [
-                { type: 'text', text: 'One word: ready or wait.' },
-                { type: 'image_url', image_url: { url: `data:${mediaType};base64,${data}` } },
-              ],
-            },
-          ],
-        } as any,
-        { timeout: 12000 },
-      );
-      logUsage(resp, mode, model, 'ready');
-      const out = (resp.choices?.[0]?.message?.content ?? '').toLowerCase();
-      if (out.includes('wait')) return false;
-      return out.includes('ready');
-    } catch (err) {
-      console.warn('[nuclear-learning] ready check failed, waiting:', err);
-      return false;
-    }
-  }
-
-  // The grading path, no corner mark. While no solution is cached, Sonnet says each scan whether the
-  // question is fully written and ready; once it is, Opus solves it at MEDIUM effort and caches the
-  // worked checklist. From then on Sonnet verifies every scan against that cache and corrects
-  // continuously (it stays OK while a line is mid-working and only flags a settled result), and Opus
-  // confirms a finished answer at LOW effort before we acknowledge. Clear moves on to a new problem.
+  // The grading path, no corner mark, no readiness gate. While no solution is cached, o3 attempts the
+  // solve each scan: if the question is fully written it solves it at MEDIUM effort and caches the
+  // worked checklist; if the statement is not yet complete it returns an empty solution and we quietly
+  // retry next scan. So o3 itself is the gatekeeper, not a flaky cheap readiness check. From then on
+  // gpt-5.4-mini verifies every scan against the cache and corrects continuously (staying OK while a
+  // line is mid-working and only flagging a settled result), and o3 confirms a finished answer at LOW
+  // effort before we acknowledge. Clear moves on to a new problem.
   async function getFeedbackCached(
     data: string,
     mediaType: ImageMediaType,
@@ -482,9 +447,9 @@ export function useFeedback() {
   ): Promise<string> {
     const wantSkills = settings.api.trackSkills;
 
-    // No solution yet: only once Sonnet says the question is ready does Opus solve and cache it.
+    // No solution yet: o3 attempts the solve. It caches only a complete question and leaves the cache
+    // empty (a silent OK) while the statement is still going in, so it self-gates.
     if (cachedSolution === '') {
-      if (!(await checkReady(data, mediaType, mode))) return 'OK';
       const r = await callModel(
         settings.api.solveModel,
         'medium',
