@@ -465,6 +465,11 @@ export function useFeedback() {
       lastSteps = solutionSteps();
       recordMembership(r);
       if (isCorrect(r.verdict)) captureSkills(r);
+      if (import.meta.env.DEV) {
+        console.debug(
+          `[nuclear-learning] solve: cached=${cachedSolution !== ''} (solution ${r.solution.length} chars), problem=${JSON.stringify(r.problem)}, verdict=${JSON.stringify(r.verdict)}`,
+        );
+      }
       return r.verdict;
     }
 
@@ -647,6 +652,17 @@ export function useFeedback() {
   // UI tell "still solving (no reference yet)" apart from "solved, and the work so far looks fine".
   function hasSolution(): boolean {
     return cachedSolution !== '';
+  }
+
+  // Console probe: type __nlState() in DevTools to see whether the current problem has a cached
+  // solution and what it is, so a non-caching solve is provable rather than guessed at.
+  if (typeof window !== 'undefined') {
+    (window as unknown as { __nlState: unknown }).__nlState = () => ({
+      hasSolution: cachedSolution !== '',
+      problem: cachedProblem,
+      solutionChars: cachedSolution.length,
+      solution: cachedSolution,
+    });
   }
 
   return {
