@@ -70,22 +70,6 @@ const SKILL_SOLUTION_SCHEMA = {
   },
 };
 
-// The gatekeeper schema: the cheap watcher reports these two booleans, never a grade. One says the
-// full question is written and ready to solve; the other says a corner mark asks for feedback.
-const GATE_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['questionReady', 'cornerMark', 'difficulty'],
-  properties: {
-    questionReady: { type: 'boolean' },
-    cornerMark: { type: 'boolean' },
-    difficulty: { enum: ['easy', 'medium', 'high'] },
-  },
-};
-
-const GATE_PROMPT =
-  'You look at a photo of handwritten work and report THREE things as JSON, without solving or grading anything: (1) questionReady: whether the full problem statement the learner is working on is written out completely enough to be solved (the whole question, not just a label, a heading, or a half-written line); (2) cornerMark: whether the learner has drawn a CORNER MARK anywhere on the page, meaning any deliberate hand-drawn right-angle hook or L-shaped bracket OF ANY SIZE (a small L, a corner bracket, or a large bracket drawn beside, beneath, or around an answer) that they added to flag a line or a final answer for checking, separate from the mathematics itself, and NOT a right angle that belongs to the work and NOT an arrow used to redo a line; (3) difficulty: how hard the posed problem is to solve, "easy" for a clear one- or two-step problem, "high" for a long or conceptually demanding one, and "medium" otherwise, preferring "medium" when unsure. If you are unsure about questionReady or cornerMark, report false for it. Reply with a JSON object {"questionReady": boolean, "cornerMark": boolean, "difficulty": "easy"|"medium"|"high"} and nothing else.';
-
 let client: Anthropic | null = null;
 
 function getClient(): Anthropic {
@@ -144,9 +128,9 @@ export function useFeedback() {
   // and it is never re-solved until resetSession (Clear).
   let cachedSolution = '';
   let cachedProblem = '';
-  // The gate's difficulty for the current problem, set at solve time and reused so the confirm
-  // runs on the same tier as the solve (easy on Sonnet, medium/hard on Opus).
-  let cachedDifficulty = 'medium';
+  // Difficulty class for the current problem (easy | medium | high) from the Haiku classifier;
+  // '' until classified. Picks which model the solve and confirm run on. Cleared on Clear.
+  let cachedDifficulty = '';
   // Whether the last scan's gate saw a corner mark, so the UI can tell "no corner yet" (nothing
   // asked) apart from "corner seen, still not done" instead of one vague message for both.
   let sawCornerLast = false;
@@ -165,8 +149,6 @@ export function useFeedback() {
   let skillApplied = false;
   let pageReachedCorrect = false;
   let lastSteps = 0;
-  // Automatic-routing only: cached difficulty class for the current problem.
-  let complexity = '';
 
   function buildContext(mode: Mode): string {
     const lang = langLine(mode);
@@ -356,7 +338,7 @@ export function useFeedback() {
         'The correct solution to the current problem is:',
         cachedSolution,
         '',
-        'Set `cornerMark` true ONLY if the learner has clearly drawn a corner mark on this page: a small hand-drawn right-angle hook (an L, a corner bracket, two short strokes at a right angle) placed beside or beneath a line as a deliberate annotation, separate from the mathematics, not a right angle that belongs to the work (a geometry figure, a bracket or fraction-bar corner, an L variable). If you are unsure, set it false.',
+        'Set `cornerMark` true ONLY if the learner has clearly drawn a corner mark on this page: a deliberate hand-drawn right-angle hook or L-shaped bracket OF ANY SIZE (a small L, a corner bracket, or a large bracket drawn beside, beneath, or around an answer) added as an annotation to flag a line or answer for checking, separate from the mathematics, not a right angle that belongs to the work (a geometry figure, a bracket or fraction-bar corner, an L variable). If you are unsure, set it false.',
         'If `cornerMark` is false, your verdict is OK and nothing else, whatever the work shows. Never correct, acknowledge, or comment without a corner mark. When `cornerMark` is true, judge RESULT-FIRST against the known solution: if a result the learner has settled on diverges, name the first diverging step, reading what the learner wrote rather than guessing a formula. Respond CORRECT ONLY when every sub-part label on the page (a, b, c, ...) has an answer, each answered sub-part carries its OWN double-underlined result tied to it, and every error flagged earlier has been fixed; otherwise, with no diverging settled result, respond OK. Give no advice or encouragement of any kind. Do not re-derive; leave "solution" empty.',
         'While a line, a calculation, or a redo is still being written, respond OK rather than flagging it; only judge a result the learner has settled on. A line the learner marked "falsch" or struck through and redirected with an arrow to a redo is finished business: NEVER report that mistake again, follow the arrow, and stay OK while the redo is in progress, judging it only once it reaches a settled result. Report any one correction only once, then stay OK while the learner works on the fix.',
         'CORRECTION (stored for the learner\'s later review, never spoken): if your verdict is CORRECT and the earlier feedback above had flagged a mistake the learner has since fixed, fill `correction.wrong` with the specific error they made and `correction.right` with the corrected version, each ONE short line, writing every mathematical expression in LaTeX between single $ delimiters (for example $\\overline{a\\cdot b}=\\bar a+\\bar b$). This field is for review only, so naming the right answer here is fine and does not change your verdict. If there was no earlier mistake, leave both empty.',
@@ -364,7 +346,7 @@ export function useFeedback() {
     } else {
       lines.push(
         'No solution has been worked out for the current problem yet. Identify the problem the learner is working on, solve it completely yourself, and return the full worked solution in "solution" with a short label in "problem" (work it out and keep it ready even on a scan where you stay silent). If the problem statement is still incomplete or you cannot determine it, leave "solution" empty.',
-        'Set `cornerMark` true only if a corner mark is clearly present (a hand-drawn right-angle hook beside a line, separate from the mathematics; if unsure, false). If `cornerMark` is false, your verdict is OK. When it is true, grade against the solution you just derived: name the first diverging step only for a result the learner has settled on; respond CORRECT ONLY when every sub-part is answered with its own double-underlined result and every earlier error is fixed; otherwise OK. Give no advice.',
+        'Set `cornerMark` true only if a corner mark is clearly present (a deliberate hand-drawn right-angle hook or L-shaped bracket of any size beside, beneath, or around a line or answer, separate from the mathematics; if unsure, false). If `cornerMark` is false, your verdict is OK. When it is true, grade against the solution you just derived: name the first diverging step only for a result the learner has settled on; respond CORRECT ONLY when every sub-part is answered with its own double-underlined result and every earlier error is fixed; otherwise OK. Give no advice.',
         'While a line or a redo is still being written, respond OK. A line the learner marked "falsch" or struck through and redirected with an arrow to a redo is finished: do not report that mistake again, and stay OK until the redo reaches a settled result.',
       );
     }
@@ -494,59 +476,11 @@ export function useFeedback() {
     return { model: settings.api.solveModel, effort: 'low' };
   }
 
-  // The gatekeeper. The cheapest model looks at the page and reports two things without grading:
-  // whether the full question is written out (ready to solve) and whether a corner mark is there
-  // (the learner's request for feedback). It is a tiny constant call run on every scan. A missing
-  // or malformed reply is read as "not ready, no mark", so the safe default is to spend nothing.
-  async function checkGate(
-    data: string,
-    mediaType: ImageMediaType,
-    mode: Mode,
-  ): Promise<{ questionReady: boolean; cornerMark: boolean; difficulty: string }> {
-    const model = settings.api.gateModel;
-    try {
-      const resp = await getClient().messages.create(
-        {
-          model,
-          max_tokens: 80,
-          system: GATE_PROMPT,
-          messages: [
-            {
-              role: 'user',
-              content: [
-                { type: 'image', source: { type: 'base64', media_type: mediaType, data } },
-                { type: 'text', text: 'Report questionReady and cornerMark as JSON.' },
-              ],
-            },
-          ],
-          output_config: { format: { type: 'json_schema', schema: GATE_SCHEMA } },
-        } as any,
-        { timeout: 12000 },
-      );
-      logUsage(resp, mode, model, 'gate');
-      const out = (resp.content as any[])
-        .filter((b) => b.type === 'text')
-        .map((b) => b.text as string)
-        .join('')
-        .trim();
-      const parsed = JSON.parse(out);
-      const difficulty =
-        parsed?.difficulty === 'easy' || parsed?.difficulty === 'high' ? parsed.difficulty : 'medium';
-      return {
-        questionReady: parsed?.questionReady === true,
-        cornerMark: parsed?.cornerMark === true,
-        difficulty,
-      };
-    } catch (err) {
-      console.warn('[nuclear-learning] gate check failed, staying silent:', err);
-      return { questionReady: false, cornerMark: false, difficulty: 'medium' };
-    }
-  }
-
-  // Automatic routing: a cheap model judges whether the posed problem is simple or
-  // multi-step (once), which selects the solve effort. Biased toward "complex" when
-  // unsure, since a complex problem solved at low effort poisons every later check.
-  async function classify(
+  // The classifier: the cheapest model rates the POSED problem's difficulty (not the learner's
+  // working) in one word, and says "none" while the question is not yet fully written. That word
+  // picks the tier the solve and confirm run on. Corner detection is NOT its job; the verifier does
+  // that on every scan.
+  async function classifyDifficulty(
     data: string,
     mediaType: ImageMediaType,
     mode: Mode,
@@ -558,13 +492,13 @@ export function useFeedback() {
       model,
       max_tokens: 16,
       system:
-        'You classify a handwritten math problem by difficulty. Judge the PROBLEM being posed, not the learner\'s working. Reply with EXACTLY ONE word and nothing else: "simple" for a one- or two-step problem, "complex" for a multi-step problem, or "unready" if the problem statement is not yet fully written or you cannot tell. If unsure between simple and complex, reply complex.',
+        'You classify a handwritten math problem by difficulty. Judge the PROBLEM being posed, not the learner\'s working. Reply with EXACTLY ONE word and nothing else: "easy" for a one- or two-step problem, "medium" for a multi-step problem, "hard" for a long or conceptually demanding problem, or "none" if the problem statement is not yet fully written or you cannot tell. If unsure between easy and medium, reply medium.',
       messages: [
         {
           role: 'user',
           content: [
             { type: 'image', source: { type: 'base64', media_type: mediaType, data } },
-            { type: 'text', text: 'One word: simple, complex, or unready.' },
+            { type: 'text', text: 'One word: easy, medium, hard, or none.' },
           ],
         },
       ],
@@ -578,120 +512,41 @@ export function useFeedback() {
         .map((b) => b.text as string)
         .join(' ')
         .toLowerCase();
-      if (out.includes('complex')) return 'complex';
-      if (out.includes('simple')) return 'simple';
-      if (out.includes('unready')) return 'unready';
-      return 'complex';
+      if (out.includes('none')) return 'none';
+      if (out.includes('easy')) return 'easy';
+      if (out.includes('hard') || out.includes('high')) return 'high';
+      if (out.includes('medium')) return 'medium';
+      return 'medium';
     } catch (err) {
-      // Never let a classify failure stall the scan, fall through to a complex
-      // (medium) solve, which is the safe default.
-      console.warn('[nuclear-learning] classify failed, defaulting to complex:', err);
-      return 'complex';
+      // Never let a classify failure stall the scan; default to a medium-tier solve.
+      console.warn('[nuclear-learning] classify failed, defaulting to medium:', err);
+      return 'medium';
     }
   }
 
-  // Automatic routing path: classify the problem once (cheap) only to gate the SOLVE
-  // effort (low for simple, solveEffort for complex), then run the same tiered flow as
-  // manual. The strong model is used ONLY to solve and to confirm; verification is
-  // always the cheap model. So auto differs from manual only in that the classifier
-  // picks the solve effort, which saves on simple problems.
-  async function getFeedbackAuto(
-    data: string,
-    mediaType: ImageMediaType,
-    mode: Mode,
-  ): Promise<string> {
-    const wantSkills = settings.api.trackSkills;
-    if (complexity === '') {
-      const cls = await classify(data, mediaType, mode);
-      if (cls !== 'simple' && cls !== 'complex') return 'OK'; // problem not complete yet
-      complexity = cls;
-    }
-
-    // SOLVE once on the strong model, at the classifier-gated effort.
-    if (cachedSolution === '') {
-      const effort = complexity === 'complex' ? settings.api.solveEffort : 'low';
-      const r = await callModel(
-        settings.api.solveModel,
-        effort,
-        'solve',
-        data,
-        mediaType,
-        mode,
-        buildCachedContext(false),
-        wantSkills,
-      );
-      if (r.solution) cachedSolution = r.solution;
-      if (r.problem) cachedProblem = r.problem;
-      lastSteps = solutionSteps();
-      recordMembership(r);
-      const v = gateVerdict(r, mode);
-      if (isCorrect(v)) captureSkills(r); // first-try-correct, only with a corner mark
-      return v;
-    }
-
-    // VERIFY every later scan on the cheap model. No skill tagging here, so the
-    // repetitive middle stays lean.
-    const r = await callModel(
-      settings.api.verifyModel,
-      settings.api.verifyEffort,
-      'verify',
-      data,
-      mediaType,
-      mode,
-      buildCachedContext(true),
-    );
-    const rv = gateVerdict(r, mode);
-    if (!isCorrect(rv)) return rv;
-
-    // CONFIRM on the strong model before the chime; this Opus call carries the skill
-    // tagger. If it disagrees, deliver its hint and keep verifying cheaply.
-    const c = await callModel(
-      settings.api.confirmModel,
-      settings.api.confirmEffort,
-      'confirm',
-      data,
-      mediaType,
-      mode,
-      buildCachedContext(true),
-      wantSkills,
-    );
-    const cv = gateVerdict(c, mode);
-    if (isCorrect(cv)) captureSkills(c);
-    return cv;
-  }
-
-  // Tiered solve-then-verify path. The solve step runs only until a solution is
-  // cached. Once solved it LATCHES: the problem is never solved again for the rest
-  // of the session (Clear moves to a new problem). The verify step runs every later
-  // scan, where a cheap model checks progress against the cache. The confirm step
-  // runs ONLY when the cheap model says CORRECT: the confirm (strong) model re-checks
-  // the final answer before it chimes. While the work is still unresolved the cheap
-  // model carries every scan — the strong model is never spent on an unfinished page.
+  // The grading path. Classify the problem's difficulty once (cheap Haiku), solve it once on the
+  // tier that difficulty picks and cache the worked checklist, then verify every later scan on
+  // Sonnet against that cache. The verifier is what reads the corner mark and the double-underlined
+  // results; a page with no mark comes back OK and stays silent. When Sonnet judges a marked answer
+  // finished and right, the strong model confirms on the same tier before we acknowledge. The
+  // strong model is never spent on an unfinished page, and Clear moves on to a new problem.
   async function getFeedbackCached(
     data: string,
     mediaType: ImageMediaType,
     mode: Mode,
   ): Promise<string> {
-    if (settings.api.routing === 'auto') return getFeedbackAuto(data, mediaType, mode);
     const wantSkills = settings.api.trackSkills;
 
-    // Cheap gatekeeper, every scan: a Haiku pass that reports whether the full question is written
-    // out (ready to solve) and whether a corner mark is present. It never grades the mathematics.
-    const gate = mode.cornerGated
-      ? await checkGate(data, mediaType, mode)
-      : { questionReady: true, cornerMark: true, difficulty: 'medium' };
-    sawCornerLast = gate.cornerMark;
+    // CLASSIFY difficulty once. "none" means the question is not fully written yet: stay silent.
+    if (cachedDifficulty === '') {
+      const d = await classifyDifficulty(data, mediaType, mode);
+      if (d === 'none') return 'OK';
+      cachedDifficulty = d;
+    }
 
-    // PRE-SOLVE. Solve once on the strong model and cache the checklist. Normally this fires the
-    // moment the whole question is written, so the first corner check is instant; but a corner mark
-    // ALSO forces it, so a check never gets stuck behind the gate being shy about calling the
-    // question ready. The solve re-checks completeness itself (buildCachedContext(false) leaves the
-    // solution empty if the statement is not fully there), so a false start just retries next scan.
-    // It also grades the current work, though the corner gate keeps that silent without a mark.
-    if (cachedSolution === '' && (gate.questionReady || gate.cornerMark)) {
-      // Route the strong-model work by the gate's difficulty (easy on Sonnet, medium on Opus at low
-      // effort, hard on Opus at medium effort). Remembered so the confirm runs on the same tier.
-      cachedDifficulty = gate.difficulty;
+    // SOLVE once, on the tier the difficulty picks, and cache the checklist. This also grades the
+    // current page, though the corner gate keeps it silent unless a mark is there. Latches once solved.
+    if (cachedSolution === '') {
       const tier = tierFor(cachedDifficulty);
       const r = await callModel(
         tier.model,
@@ -707,19 +562,14 @@ export function useFeedback() {
       if (r.problem) cachedProblem = r.problem;
       lastSteps = solutionSteps();
       recordMembership(r);
+      sawCornerLast = r.cornerMark;
       const v = gateVerdict(r, mode);
-      if (isCorrect(v)) captureSkills(r); // graded here, but silent without a corner mark
+      if (isCorrect(v)) captureSkills(r); // first-try-correct, only with a corner mark
       return v;
     }
-    // The question is still going in (nothing complete to solve yet): stay silent and cheap.
-    if (cachedSolution === '') return 'OK';
 
-    // Solution cached. From here it is the normal corner-gated flow: a verdict only when you ask.
-    if (mode.cornerGated && !gate.cornerMark) return 'OK';
-
-    // VERIFY on Sonnet against the cached solution, escalating a claimed completion to a confirm on
-    // the same tier the solve used before we acknowledge. The Haiku gatekeeper above already ensured
-    // a corner mark is present, so these run only on scans the learner asked to have checked.
+    // VERIFY every later scan on Sonnet against the cache. Sonnet reads the corner mark and the
+    // double-underlined results; without a mark it returns OK and the app stays silent.
     const r = await callModel(
       settings.api.verifyModel,
       settings.api.verifyEffort,
@@ -729,9 +579,12 @@ export function useFeedback() {
       mode,
       buildCachedContext(true),
     );
+    sawCornerLast = r.cornerMark;
     const rv = gateVerdict(r, mode);
     if (!isCorrect(rv)) return rv;
 
+    // Sonnet judged the marked answer finished and right (corner + double-underlined result):
+    // confirm on the strong model, on the same tier the solve used, before we acknowledge.
     const ct = tierFor(cachedDifficulty);
     const c = await callModel(
       ct.model,
@@ -883,7 +736,7 @@ export function useFeedback() {
     spokenKeys.clear();
     cachedSolution = '';
     cachedProblem = '';
-    cachedDifficulty = 'medium';
+    cachedDifficulty = '';
     sawCornerLast = false;
     lessonCaptured = false;
     lastCorrection = null;
@@ -891,7 +744,6 @@ export function useFeedback() {
     skillApplied = false;
     pageReachedCorrect = false;
     lastSteps = 0;
-    complexity = '';
     newPage();
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
