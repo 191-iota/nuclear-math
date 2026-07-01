@@ -139,12 +139,16 @@ async function runFeedback() {
     }
     if (import.meta.env.DEV) console.debug('[nuclear-learning] verdict:', JSON.stringify(text));
     feedback.recordVerdict(text);
-    lastFeedback.value = feedback.isQuiet(text)
-      ? activeMode.value.cornerGated && !feedback.lastCornerSeen()
-        ? 'No corner mark seen yet. Draw one to get this checked.'
-        : 'Looks good so far…'
-      : feedback.describe(text, activeMode.value);
-    feedback.deliver(text, activeMode.value);
+    const played = feedback.deliver(text, activeMode.value);
+    if (feedback.isQuiet(text)) {
+      lastFeedback.value =
+        activeMode.value.cornerGated && !feedback.lastCornerSeen()
+          ? 'No corner mark seen yet. Draw one to get this checked.'
+          : 'Looks good so far…';
+    } else if (played) {
+      // Only refresh the shown correction when it actually spoke; a deduped repeat leaves it be.
+      lastFeedback.value = feedback.describe(text, activeMode.value);
+    }
     status.value = '';
     // Correct → offer to auto-advance to the next problem; any other verdict (a fresh error
     // after a correct one) calls off a pending clear. With the corner gate, CORRECT only fires

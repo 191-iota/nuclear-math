@@ -135,7 +135,10 @@ function langLine(mode: Mode): string {
 export function useFeedback() {
   // Distinct verdicts on the current page, oldest first.
   const history: string[] = [];
-  let lastDelivered = '';
+  // Every distinct verdict already spoken this problem, so a correction is heard once and the
+  // graders re-flagging the same step on later scans (the corner mark stays on the page) never
+  // replays it.
+  const spokenKeys = new Set<string>();
   // Session-scoped worked solution for the current problem. The solve model works
   // it out once and this LATCHES, later scans verify against it on the cheap model
   // and it is never re-solved until resetSession (Clear).
@@ -365,6 +368,10 @@ export function useFeedback() {
         'While a line or a redo is still being written, respond OK. A line the learner marked "falsch" or struck through and redirected with an arrow to a redo is finished: do not report that mistake again, and stay OK until the redo reaches a settled result.',
       );
     }
+    lines.push(
+      '',
+      'Phrase any correction you speak as one short sentence in plain words a voice can read: no LaTeX, no dollar signs, no backslash commands, saying fractions as "a over b" and powers as "squared". Keep LaTeX only in the stored `correction` field, never in the spoken `verdict`.',
+    );
     if (settings.api.feedbackLang === 'German') lines.push('', GERMAN_GRADING);
     return lines.join('\n');
   }
@@ -841,8 +848,9 @@ export function useFeedback() {
 
   function deliver(text: string, mode: Mode): boolean {
     if (!text || isQuiet(text)) return false;
-    if (lastDelivered && deliveryKey(text) === deliveryKey(lastDelivered)) return false;
-    lastDelivered = text;
+    const key = deliveryKey(text);
+    if (spokenKeys.has(key)) return false; // already said this one this problem
+    spokenKeys.add(key);
     // Corner-gated correct answers are spoken, not chimed ("say it is correct, don't mark it").
     const markSilently = mode.cornerGated === true && isCorrect(text);
     if ((mode.feedbackStyle === 'chime' || mode.feedbackStyle === 'both') && !markSilently) {
@@ -872,7 +880,7 @@ export function useFeedback() {
       }
     }
     history.length = 0;
-    lastDelivered = '';
+    spokenKeys.clear();
     cachedSolution = '';
     cachedProblem = '';
     cachedDifficulty = 'medium';
