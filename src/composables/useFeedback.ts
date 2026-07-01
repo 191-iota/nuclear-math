@@ -319,27 +319,28 @@ export function useFeedback() {
   // otherwise we ask it to solve the problem and hand back the worked solution.
   function buildCachedContext(hasCache: boolean): string {
     const lines: string[] = [];
-    if (history.length > 0) {
-      lines.push(
-        'Feedback you gave EARLIER on this same page (oldest first). The learner may have since fixed some of these, so check each one against the CURRENT work: if a step you flagged now follows correctly, it is FIXED — do NOT report it again and do NOT let it keep you from OK/CORRECT. Only re-report an error that is STILL wrong in what is written now.',
-      );
-      lines.push(history.map((h, i) => `${i + 1}. ${h}`).join('\n'));
-      lines.push('');
-    }
     if (hasCache) {
       lines.push(
         'The correct solution to the current problem is:',
         cachedSolution,
         '',
-        'Judge the work RESULT-FIRST against the known solution: check every line the learner has fully written, and the moment a completed line or equality does not follow correctly from the line before it (a wrong manipulation, a sign error, a bad step), name that first diverging step in one short sentence, reading what the learner actually wrote rather than guessing a formula. The learner may simplify or rearrange by a DIFFERENT valid route than the solution above, so judge each line by whether it follows algebraically from the learner\'s OWN previous line, not by whether it matches the route above. Do NOT wait for a final answer to flag a clear mistake. A final result MATCHES the known solution when it is algebraically EQUAL, not identical in form (equal after expanding, factoring, a common denominator, cancelling, or flipping the overall sign, so a(2w-v)/(-2w-kv) = a(v-2w)/(kv+2w)); check equality by normalising both or substituting test numbers, and do NOT drop to OK over a sign or form difference you have not actually checked. Respond CORRECT ONLY when every sub-part label on the page (a, b, c, ...) has an answer, each answered sub-part carries its own clearly-marked result, and every error flagged earlier has been fixed; otherwise, when the work so far is correct, respond OK. Give no advice or encouragement of any kind. Do not re-derive; leave "solution" empty.',
-        'Respond OK only while the NEWEST line is still visibly being written (a partial, unfinished expression); once a line is fully written down, judge it. A line the learner marked "falsch" or struck through and redirected with an arrow to a redo is finished business: NEVER report that mistake again, follow the arrow, and stay OK while the redo is in progress. Report any one correction only once, then stay OK while the learner works on the fix.',
-        'CORRECTION (stored for the learner\'s later review, never spoken): if your verdict is CORRECT and the earlier feedback above had flagged a mistake the learner has since fixed, fill `correction.wrong` with the specific error they made and `correction.right` with the corrected version, each ONE short line, writing every mathematical expression in LaTeX between single $ delimiters (for example $\\overline{a\\cdot b}=\\bar a+\\bar b$). This field is for review only, so naming the right answer here is fine and does not change your verdict. If there was no earlier mistake, leave both empty.',
+        'Verify the learner\'s work against this solution on every scan using the grading rules in your instructions; do not re-derive it, and leave "solution" empty.',
+        'CORRECTION (stored for the learner\'s later review, never spoken): if your verdict is CORRECT and the earlier feedback below had flagged a mistake the learner has since fixed, fill `correction.wrong` with the specific error they made and `correction.right` with the corrected version, each ONE short line, writing every mathematical expression in LaTeX between single $ delimiters (for example $\\overline{a\\cdot b}=\\bar a+\\bar b$). This field is for review only, so naming the right answer here is fine and does not change your verdict. If there was no earlier mistake, leave both empty.',
       );
     } else {
       lines.push(
         'No solution has been worked out for the current problem yet. The PROBLEM is the ORIGINAL expression or task the learner started from: the first, topmost line, before any "=" sign and before any reworking. A task like "Vereinfachen" (simplify) or "nach b auflösen" (solve for b) applies to THAT original expression. Everything the learner wrote after it (later lines, equalities, crossed-out reworkings) is their ATTEMPT to be graded, never part of the problem, so NEVER take a later or reworked line as the given. Solve that original problem completely yourself from scratch, and return the full worked solution in "solution" with a short label in "problem" (keep it ready even on a scan where you stay silent). If the original statement is still incomplete or you cannot determine it, leave "solution" empty.',
         'Then grade the current work against the solution you just derived: check every fully-written line, and the moment a completed line or equality does not follow correctly from the one before it, name that first diverging step; do not wait for a final answer to flag a clear mistake. Respond CORRECT ONLY when every sub-part is answered with its own clearly-marked result and every earlier error is fixed; otherwise, when the work so far is correct, OK. Give no advice.',
         'Respond OK only while the newest line is still visibly being written. A line the learner marked "falsch" or struck through and redirected with an arrow to a redo is finished: do not report that mistake again, and stay OK while the redo is in progress.',
+      );
+    }
+    if (history.length > 0) {
+      // History goes LAST: it grows every scan, so keeping it after the stable per-problem solution
+      // and instructions leaves that prefix intact for OpenAI prompt caching.
+      lines.push(
+        '',
+        'Feedback you gave EARLIER on this same page (oldest first). The learner may have since fixed some of these, so check each one against the CURRENT work: if a step you flagged now follows correctly, it is FIXED — do NOT report it again and do NOT let it keep you from OK/CORRECT. Only re-report an error that is STILL wrong in what is written now.',
+        history.map((h, i) => `${i + 1}. ${h}`).join('\n'),
       );
     }
     lines.push(
