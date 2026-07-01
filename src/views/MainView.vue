@@ -144,10 +144,10 @@ async function runFeedback() {
       : feedback.describe(text, activeMode.value);
     feedback.deliver(text, activeMode.value);
     status.value = '';
-    // Correct → offer to auto-advance to the next problem; any other verdict
-    // (a fresh error after a correct one) calls off a pending clear. A corner-gated
-    // mode never auto-advances: a corner-checked line being right is not "problem done".
-    if (feedback.isCorrect(text) && !activeMode.value.cornerGated) startAutoClear();
+    // Correct → offer to auto-advance to the next problem; any other verdict (a fresh error
+    // after a correct one) calls off a pending clear. With the corner gate, CORRECT only fires
+    // once every part is answered and double-underlined, so it is a real completion worth clearing.
+    if (feedback.isCorrect(text)) startAutoClear();
     else if (!feedback.isQuiet(text)) cancelAutoClear();
   } catch (err: any) {
     if (gen !== generation) {
