@@ -142,6 +142,14 @@ export function useFeedback() {
   let lastSteps = 0;
   // Automatic-routing only: cached difficulty class for the current problem.
   let complexity = '';
+  // Escalation ladder for the verify scans. The base verifier is Haiku (cheapest) and it
+  // carries the repetitive middle; it upgrades to Sonnet for the rest of the session once
+  // Opus overturns a completion that Sonnet had agreed to, since the problem is then ambiguous
+  // enough that the cheap base can no longer be trusted. `escalationNote` records why a claimed
+  // completion was overturned, fed back to the base so it stops re-escalating the same false
+  // finish.
+  let verifyBaseTier: 'haiku' | 'sonnet' = 'haiku';
+  let escalationNote = '';
 
   function buildContext(mode: Mode): string {
     const lang = langLine(mode);
@@ -325,6 +333,14 @@ export function useFeedback() {
       lines.push('Earlier feedback you gave on this same page (oldest first):');
       lines.push(history.map((h, i) => `${i + 1}. ${h}`).join('\n'));
       lines.push('');
+    }
+    if (escalationNote) {
+      lines.push(
+        'A stronger check looked at a moment that had seemed finished and found it was not done: ' +
+          escalationNote +
+          ' Keep that in mind and do not report the work as done until it is resolved.',
+        '',
+      );
     }
     if (hasCache) {
       lines.push(
@@ -614,11 +630,13 @@ export function useFeedback() {
       return v;
     }
 
-    // VERIFY, cheap model checks progress against the cached solution. The effort
-    // is applied only if the verify model supports it (ignored for cheap models). No
-    // skill tagging here, so the repetitive middle scans stay lean.
+    // VERIFY ladder. The base verifier (Haiku until upgraded to Sonnet) carries the repetitive
+    // middle cheaply, comparing the work against the cached solution. It escalates only when it
+    // thinks the work is done: Sonnet gives a second opinion, and only if Sonnet agrees does Opus
+    // confirm. So the stronger models are spent on claimed completions, not on every scan.
+    const baseModel = verifyBaseTier === 'haiku' ? settings.api.verifyBaseModel : settings.api.verifyModel;
     const r = await callModel(
-      settings.api.verifyModel,
+      baseModel,
       settings.api.verifyEffort,
       'verify',
       data,
@@ -627,10 +645,29 @@ export function useFeedback() {
       buildCachedContext(true),
     );
     const rv = gateVerdict(r, mode);
-    if (!isCorrect(rv)) return rv;
+    if (!isCorrect(rv)) return rv; // OK or a correction from the base, delivered as-is
 
-    // The cheap model thinks it's done, re-check the final answer on the confirm
-    // model before chiming CORRECT. This Opus pass also carries the skill tagger.
+    // The base thinks it is done. While it is still Haiku, take a Sonnet second opinion; a
+    // Sonnet that disagrees is stored so Haiku stops re-escalating the same false finish.
+    if (verifyBaseTier === 'haiku') {
+      const s = await callModel(
+        settings.api.verifyModel,
+        settings.api.verifyEffort,
+        'verify',
+        data,
+        mediaType,
+        mode,
+        buildCachedContext(true),
+      );
+      const sv = gateVerdict(s, mode);
+      if (!isCorrect(sv)) {
+        escalationNote = isQuiet(sv) ? 'it was not yet complete' : sv;
+        return sv;
+      }
+    }
+
+    // Sonnet agrees, or the base is already Sonnet. Opus confirms before we acknowledge. This
+    // pass also carries the skill tagger.
     const c = await callModel(
       settings.api.confirmModel,
       settings.api.confirmEffort,
@@ -642,9 +679,15 @@ export function useFeedback() {
       wantSkills,
     );
     const cv = gateVerdict(c, mode);
-    if (isCorrect(cv)) captureSkills(c);
-    // If the confirm model disagrees (or there is no corner mark) this is OK or its hint;
-    // later scans keep verifying cheaply, and the gate above re-checks any future CORRECT.
+    if (isCorrect(cv)) {
+      captureSkills(c);
+      escalationNote = '';
+      return cv; // confirmed
+    }
+    // Opus overturns a completion Sonnet had agreed to: the problem is ambiguous from here on,
+    // so promote the base verifier to Sonnet for the rest of the session and deliver Opus's hint.
+    verifyBaseTier = 'sonnet';
+    escalationNote = '';
     return cv;
   }
 
@@ -789,6 +832,8 @@ export function useFeedback() {
     pageReachedCorrect = false;
     lastSteps = 0;
     complexity = '';
+    verifyBaseTier = 'haiku';
+    escalationNote = '';
     newPage();
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();

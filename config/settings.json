@@ -17,6 +17,7 @@
     "solveModel": "claude-opus-4-6",
     "solveEffort": "medium",
     "verifyModel": "claude-sonnet-4-6",
+    "verifyBaseModel": "claude-haiku-4-5",
     "verifyEffort": "low",
     "confirmModel": "claude-opus-4-6",
     "confirmEffort": "low",
