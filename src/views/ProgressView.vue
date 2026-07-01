@@ -1,13 +1,17 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, ref } from 'vue';
 import {
   domainRollup,
   rankings,
   skillSummary,
   trajectory,
+  overallTrajectory,
   resetSkills,
   type DomainRollup,
 } from '@/stores/skills';
+
+// Sentinel domain key for the aggregated "all touched domains" trajectory.
+const OVERALL = '__all__';
 
 // All reactive off the skill store: reading the selectors inside a computed registers
 // the dependency, so the dashboard recomputes live as problems resolve.
@@ -16,8 +20,14 @@ const domains = computed(() => domainRollup());
 const touchedDomains = computed(() => domains.value.filter((d) => d.touched > 0));
 const ranks = computed(() => rankings());
 
-const selectedDomain = ref('');
-const traj = computed(() => (selectedDomain.value ? trajectory(selectedDomain.value) : []));
+const selectedDomain = ref(OVERALL);
+const traj = computed(() =>
+  selectedDomain.value === OVERALL
+    ? overallTrajectory()
+    : selectedDomain.value
+      ? trajectory(selectedDomain.value)
+      : [],
+);
 
 // Mastery trajectory as a line. y is the 0-100 mastery index, so y = 100 - pct maps
 // straight into the 0..100 viewBox; x is evenly spaced across the days.
@@ -37,15 +47,10 @@ const trajArea = computed(() => {
   return `M${ps[0].x.toFixed(1)},${VH} ${trajLine.value.slice(1)} L${ps[ps.length - 1].x.toFixed(1)},${VH} Z`;
 });
 
-onMounted(() => {
-  // Open on the weakest touched domain, so the trajectory and lists are populated.
-  selectedDomain.value = summary.value.weakest?.domain ?? touchedDomains.value[0]?.domain ?? '';
-});
-
 function reset() {
   if (confirm('Reset all tracked skill mastery? This cannot be undone.')) {
     resetSkills();
-    selectedDomain.value = '';
+    selectedDomain.value = OVERALL;
   }
 }
 
@@ -130,6 +135,13 @@ function domTip(d: DomainRollup): string {
         </div>
         <div class="tabs domsel">
           <button
+            class="tab"
+            :class="{ active: selectedDomain === OVERALL }"
+            @click="selectedDomain = OVERALL"
+          >
+            overall
+          </button>
+          <button
             v-for="d in touchedDomains"
             :key="d.domain"
             class="tab"
@@ -152,8 +164,8 @@ function domTip(d: DomainRollup): string {
           </div>
         </template>
         <p v-else class="muted" style="font-size: 0.72rem; margin-top: 0.6rem">
-          A line builds here once this domain has two days of practice. Level is demonstrated mastery
-          and stays sticky, so going rusty shows as the line drifting down, not a sudden drop.
+          A line builds here once there are two days of practice. Level is demonstrated mastery and
+          stays sticky, so going rusty shows as the line drifting down, not a sudden drop.
         </p>
       </div>
 

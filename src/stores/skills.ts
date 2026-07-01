@@ -441,6 +441,41 @@ export function trajectory(domain: string, now = Date.now()) {
   return out;
 }
 
+// Overall mastery trajectory: every touched domain's daily snapshot forward-filled,
+// then averaged into one line. Pure read over skillStore.log — no rating logic, just the
+// per-domain snapshots the estimator already writes, aggregated the same way the bar
+// chart shows them (equal weight per touched domain).
+export function overallTrajectory(now = Date.now()) {
+  const log = skillStore.log;
+  if (log.length < 2) return [] as { day: number; masteryPct: number; cov: number }[];
+  const byDomain = new Map<string, Map<number, DomainSnapshot>>();
+  let firstDay = Infinity;
+  for (const r of log) {
+    let days = byDomain.get(r.domain);
+    if (!days) byDomain.set(r.domain, (days = new Map()));
+    days.set(r.day, r);
+    if (r.day < firstDay) firstDay = r.day;
+  }
+  const today = Math.floor(now / DAY);
+  const last = new Map<string, DomainSnapshot>(); // forward-filled per domain
+  const out: { day: number; masteryPct: number; cov: number }[] = [];
+  for (let day = firstDay; day <= today; day += 1) {
+    for (const [dom, days] of byDomain) {
+      const r = days.get(day);
+      if (r) last.set(dom, r);
+    }
+    let m = 0;
+    let c = 0;
+    for (const r of last.values()) {
+      m += r.mastery;
+      c += r.cov;
+    }
+    const k = last.size;
+    if (k > 0) out.push({ day, masteryPct: Math.round((100 * m) / k), cov: c / k });
+  }
+  return out.length >= 2 ? out : [];
+}
+
 function upsertSnapshots(obs: KCObservation[], now: number): void {
   const day = Math.floor(now / DAY);
   const domains = new Set(obs.map((o) => domainOf(o.id)));
@@ -477,6 +512,7 @@ if (typeof window !== 'undefined') {
     domains: () => domainRollup(),
     rankings: () => rankings(),
     trajectory: (d: string) => trajectory(d),
+    overall: () => overallTrajectory(),
     summary: () => skillSummary(),
     diffHist: () => skillStore.diffHist.slice(),
     reset: resetSkills,
