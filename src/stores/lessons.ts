@@ -47,9 +47,11 @@ const MAX_LESSONS = 500;
 const MAX_SOLUTION = 1200; // cap stored solution length to keep localStorage small
 
 const DAY = 86_400_000;
-// Interval per box. Box 0 is due immediately (this session); each "Got it" moves
-// up a box for a longer rest, each "Again" drops back to box 0.
-const INTERVALS_MS = [0, DAY, 3 * DAY, 7 * DAY, 21 * DAY];
+// Interval per box. Box 0 is due immediately (this session); each "Got it" moves up a box for a
+// longer rest, each "Again" drops down two boxes (a partial demote, not a full reset). Extended
+// past the old 21-day ceiling toward an exam horizon so a well-known card can rest for months
+// instead of being pinned at 21 days forever.
+const INTERVALS_MS = [0, DAY, 3 * DAY, 7 * DAY, 21 * DAY, 45 * DAY, 90 * DAY];
 const MAX_BOX = INTERVALS_MS.length - 1;
 
 interface Persisted {
@@ -189,7 +191,9 @@ export function reviewLesson(id: string, remembered: boolean): void {
   if (remembered) {
     l.box = Math.min(l.box + 1, MAX_BOX);
   } else {
-    l.box = 0;
+    // Partial demote, not a full reset: a slip on a well-spaced card drops it two boxes rather than
+    // nuking months of earned spacing back to zero and forcing a full re-climb of the ladder.
+    l.box = Math.max(0, l.box - 2);
     l.lapses += 1;
   }
   l.due = now + INTERVALS_MS[l.box];
