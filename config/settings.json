@@ -23,7 +23,7 @@
     "masteryTarget": 0
   },
   "export": {
-    "maxEdgePx": 2048,
+    "maxEdgePx": 1200,
     "jpegQuality": 0.95,
     "paddingPx": 16
   },
