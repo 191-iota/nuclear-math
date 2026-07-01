@@ -84,7 +84,7 @@ const GATE_SCHEMA = {
 };
 
 const GATE_PROMPT =
-  'You look at a photo of handwritten work and report THREE things as JSON, without solving or grading anything: (1) questionReady: whether the full problem statement the learner is working on is written out completely enough to be solved (the whole question, not just a label, a heading, or a half-written line); (2) cornerMark: whether the learner has drawn a CORNER MARK, a small hand-drawn right-angle hook (an L, a corner bracket, two short strokes meeting at a right angle) placed beside a line as a deliberate annotation, separate from the mathematics, and NOT a right angle that belongs to the work or an arrow used to redo a line; (3) difficulty: how hard the posed problem is to solve, "easy" for a clear one- or two-step problem, "high" for a long or conceptually demanding one, and "medium" otherwise, preferring "medium" when unsure. If you are unsure about questionReady or cornerMark, report false for it. Reply with a JSON object {"questionReady": boolean, "cornerMark": boolean, "difficulty": "easy"|"medium"|"high"} and nothing else.';
+  'You look at a photo of handwritten work and report THREE things as JSON, without solving or grading anything: (1) questionReady: whether the full problem statement the learner is working on is written out completely enough to be solved (the whole question, not just a label, a heading, or a half-written line); (2) cornerMark: whether the learner has drawn a CORNER MARK anywhere on the page, meaning any deliberate hand-drawn right-angle hook or L-shaped bracket OF ANY SIZE (a small L, a corner bracket, or a large bracket drawn beside, beneath, or around an answer) that they added to flag a line or a final answer for checking, separate from the mathematics itself, and NOT a right angle that belongs to the work and NOT an arrow used to redo a line; (3) difficulty: how hard the posed problem is to solve, "easy" for a clear one- or two-step problem, "high" for a long or conceptually demanding one, and "medium" otherwise, preferring "medium" when unsure. If you are unsure about questionReady or cornerMark, report false for it. Reply with a JSON object {"questionReady": boolean, "cornerMark": boolean, "difficulty": "easy"|"medium"|"high"} and nothing else.';
 
 let client: Anthropic | null = null;
 
@@ -144,6 +144,9 @@ export function useFeedback() {
   // The gate's difficulty for the current problem, set at solve time and reused so the confirm
   // runs on the same tier as the solve (easy on Sonnet, medium/hard on Opus).
   let cachedDifficulty = 'medium';
+  // Whether the last scan's gate saw a corner mark, so the UI can tell "no corner yet" (nothing
+  // asked) apart from "corner seen, still not done" instead of one vague message for both.
+  let sawCornerLast = false;
   // One lesson per problem: set once a corrected mistake is logged this session.
   let lessonCaptured = false;
   // Latest learner-facing correction emitted on this page (what was wrong + the
@@ -670,13 +673,15 @@ export function useFeedback() {
     const gate = mode.cornerGated
       ? await checkGate(data, mediaType, mode)
       : { questionReady: true, cornerMark: true, difficulty: 'medium' };
+    sawCornerLast = gate.cornerMark;
 
-    // PRE-SOLVE. The moment the whole question is on the page, solve it once on the strong model and
-    // cache the checklist, so the first corner check is instant. The solve re-checks completeness
-    // itself (buildCachedContext(false) tells it to leave the solution empty if the statement is not
-    // fully there), so a Haiku false start just leaves the cache empty and we try again. This also
-    // grades the current work, but the corner gate keeps it silent unless a mark is present.
-    if (cachedSolution === '' && gate.questionReady) {
+    // PRE-SOLVE. Solve once on the strong model and cache the checklist. Normally this fires the
+    // moment the whole question is written, so the first corner check is instant; but a corner mark
+    // ALSO forces it, so a check never gets stuck behind the gate being shy about calling the
+    // question ready. The solve re-checks completeness itself (buildCachedContext(false) leaves the
+    // solution empty if the statement is not fully there), so a false start just retries next scan.
+    // It also grades the current work, though the corner gate keeps that silent without a mark.
+    if (cachedSolution === '' && (gate.questionReady || gate.cornerMark)) {
       // Route the strong-model work by the gate's difficulty (easy on Sonnet, medium on Opus at low
       // effort, hard on Opus at medium effort). Remembered so the confirm runs on the same tier.
       cachedDifficulty = gate.difficulty;
@@ -871,6 +876,7 @@ export function useFeedback() {
     cachedSolution = '';
     cachedProblem = '';
     cachedDifficulty = 'medium';
+    sawCornerLast = false;
     lessonCaptured = false;
     lastCorrection = null;
     skillMembership = null;
@@ -884,5 +890,22 @@ export function useFeedback() {
     }
   }
 
-  return { getFeedback, recordVerdict, deliver, describe, resetSession, speak, playChime, isCorrect, isQuiet };
+  // Did the last scan's gate see a corner mark? Lets the UI separate "no corner yet" from a real
+  // "looks good" so a missed mark is never mistaken for silence.
+  function lastCornerSeen(): boolean {
+    return sawCornerLast;
+  }
+
+  return {
+    getFeedback,
+    recordVerdict,
+    deliver,
+    describe,
+    resetSession,
+    speak,
+    playChime,
+    isCorrect,
+    isQuiet,
+    lastCornerSeen,
+  };
 }

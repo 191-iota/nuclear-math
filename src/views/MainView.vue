@@ -140,7 +140,9 @@ async function runFeedback() {
     if (import.meta.env.DEV) console.debug('[nuclear-learning] verdict:', JSON.stringify(text));
     feedback.recordVerdict(text);
     lastFeedback.value = feedback.isQuiet(text)
-      ? 'Looks good so far…'
+      ? activeMode.value.cornerGated && !feedback.lastCornerSeen()
+        ? 'No corner mark seen yet. Draw one to get this checked.'
+        : 'Looks good so far…'
       : feedback.describe(text, activeMode.value);
     feedback.deliver(text, activeMode.value);
     status.value = '';
