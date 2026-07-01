@@ -141,6 +141,9 @@ export function useFeedback() {
   // and it is never re-solved until resetSession (Clear).
   let cachedSolution = '';
   let cachedProblem = '';
+  // The gate's difficulty for the current problem, set at solve time and reused so the confirm
+  // runs on the same tier as the solve (easy on Sonnet, medium/hard on Opus).
+  let cachedDifficulty = 'medium';
   // One lesson per problem: set once a corrected mistake is logged this session.
   let lessonCaptured = false;
   // Latest learner-facing correction emitted on this page (what was wrong + the
@@ -473,6 +476,14 @@ export function useFeedback() {
     return mode.cornerGated && reply.cornerMark !== true ? 'OK' : reply.verdict;
   }
 
+  // The strong-model tier for a problem's difficulty, shared by the solve and the confirm: an easy
+  // problem stays on the cheaper model, a hard one gets Opus with more thinking.
+  function tierFor(difficulty: string): { model: string; effort: string } {
+    if (difficulty === 'easy') return { model: settings.api.verifyModel, effort: 'low' };
+    if (difficulty === 'high') return { model: settings.api.solveModel, effort: 'medium' };
+    return { model: settings.api.solveModel, effort: 'low' };
+  }
+
   // The gatekeeper. The cheapest model looks at the page and reports two things without grading:
   // whether the full question is written out (ready to solve) and whether a corner mark is there
   // (the learner's request for feedback). It is a tiny constant call run on every scan. A missing
@@ -666,15 +677,10 @@ export function useFeedback() {
     // fully there), so a Haiku false start just leaves the cache empty and we try again. This also
     // grades the current work, but the corner gate keeps it silent unless a mark is present.
     if (cachedSolution === '' && gate.questionReady) {
-      // Route the solve by the gate's difficulty: an easy problem is solved on Sonnet, a medium one
-      // on Opus at low effort, a hard one on Opus at medium effort. So the strong model and its
-      // thinking budget scale with the problem instead of a flat Opus solve every time.
-      const tier =
-        gate.difficulty === 'easy'
-          ? { model: settings.api.verifyModel, effort: 'low' }
-          : gate.difficulty === 'high'
-            ? { model: settings.api.solveModel, effort: 'medium' }
-            : { model: settings.api.solveModel, effort: 'low' };
+      // Route the strong-model work by the gate's difficulty (easy on Sonnet, medium on Opus at low
+      // effort, hard on Opus at medium effort). Remembered so the confirm runs on the same tier.
+      cachedDifficulty = gate.difficulty;
+      const tier = tierFor(cachedDifficulty);
       const r = await callModel(
         tier.model,
         tier.effort,
@@ -699,9 +705,9 @@ export function useFeedback() {
     // Solution cached. From here it is the normal corner-gated flow: a verdict only when you ask.
     if (mode.cornerGated && !gate.cornerMark) return 'OK';
 
-    // VERIFY on Sonnet against the cached solution, escalating a claimed completion to Opus to
-    // confirm before we acknowledge. The Haiku gatekeeper above already ensured a corner mark is
-    // present, so these run only on scans the learner asked to have checked.
+    // VERIFY on Sonnet against the cached solution, escalating a claimed completion to a confirm on
+    // the same tier the solve used before we acknowledge. The Haiku gatekeeper above already ensured
+    // a corner mark is present, so these run only on scans the learner asked to have checked.
     const r = await callModel(
       settings.api.verifyModel,
       settings.api.verifyEffort,
@@ -714,9 +720,10 @@ export function useFeedback() {
     const rv = gateVerdict(r, mode);
     if (!isCorrect(rv)) return rv;
 
+    const ct = tierFor(cachedDifficulty);
     const c = await callModel(
-      settings.api.confirmModel,
-      settings.api.confirmEffort,
+      ct.model,
+      ct.effort,
       'confirm',
       data,
       mediaType,
@@ -863,6 +870,7 @@ export function useFeedback() {
     lastDelivered = '';
     cachedSolution = '';
     cachedProblem = '';
+    cachedDifficulty = 'medium';
     lessonCaptured = false;
     lastCorrection = null;
     skillMembership = null;
