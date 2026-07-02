@@ -99,16 +99,20 @@ function scheduleFeedback() {
   debounceTimer = window.setTimeout(runFeedback, activeMode.value.debounceMs);
 }
 
-// After the debounce fires with too little new ink, wait out a longer idle and
-// then scan anyway, so a finished answer is never skipped just because the last
-// addition was small.
+// After the debounce fires with too little new ink, wait out the REST of the idle
+// window and then scan anyway, so a finished answer is never skipped just because the
+// last addition was small. idleFlushMs is measured from the last stroke: the debounce
+// already consumed debounceMs of idle before this is scheduled, so only the residual
+// is waited here — a final mark (two underline strokes) reaches its verdict about
+// idleFlushMs after the pen lifts, not debounce + flush stacked in series.
 function scheduleFlush() {
   if (flushTimer) window.clearTimeout(flushTimer);
+  const residual = Math.max(500, settings.scan.idleFlushMs - activeMode.value.debounceMs);
   flushTimer = window.setTimeout(() => {
     flushTimer = undefined;
     flushing = true;
     runFeedback();
-  }, settings.scan.idleFlushMs);
+  }, residual);
 }
 
 async function runFeedback() {
