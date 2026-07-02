@@ -16,8 +16,9 @@ import {
  * the curve, and never asks you to grind out coverage.
  *
  * The scale is anchored to the Swiss school ladder through the problem difficulties
- * the assessor already rates (1-2 Sek, 3 BM/FH median, 4 Passerelle, 5 uni stretch):
- * 400 rating points per curriculum level, 1600 = solid at the BM median. Climbing past
+ * the assessor already rates (1-2 Sek, 3 BM/FH median, 4 Passerelle, 5 uni stretch,
+ * 6 proof-based degree core, 7 graduate-entry maturity): 400 rating points per level,
+ * 1600 = solid at the BM median, 3200 = the cap at a level-7 frontier. Climbing past
  * a band therefore requires beating problems of the next band — grinding easy material
  * cannot farm the rating (confirmation cap in the estimator).
  *
@@ -46,7 +47,7 @@ export const BANDS: StageBand[] = [
 ];
 
 export interface RankDef {
-  n: number; // 1..6
+  n: number; // 1..10
   title: string;
   anchor: string; // what the band means, in plain academic terms
   minRating: number;
@@ -61,10 +62,16 @@ export interface RankDef {
 //   Niveau der technischen Berufsmatur".
 // - BM math (RLP 2025) is functions, equations, vector geometry, stochastics — no
 //   calculus; first real Analysis is FH year 1, and FH ENTRY is BM level by design.
-// - Strong FH ≈ Passerelle-pass-capable ≈ ETH-entry-equivalent (~2000): ETH prices a
-//   top FH bachelor at 40-60 ECTS of catch-up. ETH Student means surviving the
-//   math-weighted Basisjahr, which 35-50% of admitted students fail — so entry and
-//   survival are distinct rungs.
+// - Strong FH ≈ Passerelle-pass-capable ≈ federal-poly-entry-equivalent (~2000): the
+//   poly prices a top FH bachelor at 40-60 ECTS of catch-up. Poly Student means
+//   surviving the math-weighted Basisjahr, which 35-50% of admitted students fail —
+//   so entry and survival are distinct rungs. ("Poly" is the historic nickname every
+//   Swiss reads correctly; the institution stays out of user-facing strings by name.)
+// - Above Transcendent the school ladder ends and the degree ladder begins: Poly
+//   Bachelor (2800) = performing at the proof-based degree core (rigorous Analysis,
+//   algebra, probability, difficulty 6), Poly Master (3200) = graduate-entry maturity
+//   (qualifying-style proofs, difficulty 7) — a master's admission with nothing left
+//   to prove mathematically.
 // The first rank starts at the rating floor (ratings clamp at 400), so the progress
 // bar through the band starts empty.
 export const RANKS: RankDef[] = [
@@ -73,9 +80,11 @@ export const RANKS: RankDef[] = [
   { n: 3, title: 'BM Student', anchor: 'the BM core: functions, equations, vector geometry, stochastics', minRating: 1500 },
   { n: 4, title: 'FH Student', anchor: 'functioning in applied first-year Analysis and lineare Algebra', minRating: 1700 },
   { n: 5, title: 'Strong FH Student', anchor: 'top of the FH cohort — Passerelle-pass capable', minRating: 1950 },
-  { n: 6, title: 'ETH Student', anchor: 'surviving a math-weighted Basisjahr', minRating: 2150 },
-  { n: 7, title: 'Strong ETH Student', anchor: 'clearing the Basisprüfung with room to spare', minRating: 2300 },
-  { n: 8, title: 'Transcendent', anchor: 'beyond the ladder', minRating: 2400 },
+  { n: 6, title: 'Poly Student', anchor: 'surviving a math-weighted Basisjahr', minRating: 2150 },
+  { n: 7, title: 'Strong Poly Student', anchor: 'clearing the Basisprüfung with room to spare', minRating: 2300 },
+  { n: 8, title: 'Transcendent', anchor: 'past the school ladder — the mountain proper begins', minRating: 2400 },
+  { n: 9, title: 'Poly Bachelor', anchor: 'proof-based Analysis and Algebra held under exam pressure', minRating: 2800 },
+  { n: 10, title: 'Poly Master', anchor: "master's-gate maturity — admitted with nothing left to prove", minRating: 3200 },
 ];
 
 export function rankForRating(r: number): RankDef {
@@ -169,6 +178,9 @@ export function rankView(now = Date.now()): RankView {
 // above your level is what moves the rating). Falls back to the BM band unplaced.
 export function rankDrillTarget(now = Date.now()): { id: string; masteryPct: number; label: string } | null {
   const p = placement();
+  // Frontier clamps to 5: the KC taxonomy is school skills (levels 1-5), so generated
+  // drills top out at the uni-stretch band. Past that, the climb runs on the learner's
+  // own degree material — the grader and the rating handle difficulty 6-7 fine.
   const frontier = p ? Math.min(5, Math.max(1, Math.ceil(p.level))) : 3;
   const band = BANDS.find((b) => b.levels.includes(frontier)) ?? BANDS[1];
   const members = KC_DEFS.filter((d) => band.levels.includes(d.level));

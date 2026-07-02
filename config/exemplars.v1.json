@@ -298,5 +298,77 @@
     "level": 5,
     "problem": "Prove the Cauchy-Schwarz inequality: |a.b| <= |a|*|b| for all vectors a, b in R^n.",
     "whoBeatsIt": "a Basisjahr student: a general-n proof with a discriminant or projection argument, beyond Passerelle routine"
+  },
+  {
+    "domain": "fn",
+    "level": 6,
+    "problem": "Prove that a continuous f: [0,1] -> [0,1] has a fixed point.",
+    "whoBeatsIt": "a degree student mid-Analysis: IVT applied to g(x)=f(x)-x, the standard fixed-point argument"
+  },
+  {
+    "domain": "num",
+    "level": 6,
+    "problem": "Prove Fermat's little theorem: a^p = a mod p for prime p.",
+    "whoBeatsIt": "a degree student in algebra or number theory: first congruence proof beyond computation"
+  },
+  {
+    "domain": "seq",
+    "level": 6,
+    "problem": "Prove that every bounded monotone real sequence converges.",
+    "whoBeatsIt": "a degree student mid-Analysis: completeness-based convergence proof, the monotone criterion"
+  },
+  {
+    "domain": "seq",
+    "level": 7,
+    "problem": "Prove every sequence in a compact metric space has a convergent subsequence.",
+    "whoBeatsIt": "a graduate entrant: sequential compactness is metric-space topology past first-year Analysis"
+  },
+  {
+    "domain": "calc",
+    "level": 6,
+    "problem": "Prove that f(x) = x^2 is uniformly continuous on [0,1] but not on all of R.",
+    "whoBeatsIt": "a degree student mid-Analysis: epsilon-delta uniformity arguments are the Analysis I hurdle"
+  },
+  {
+    "domain": "calc",
+    "level": 7,
+    "problem": "Prove the dominated convergence theorem from Fatou's lemma.",
+    "whoBeatsIt": "a graduate entrant: measure-theoretic convergence theorems are qualifying-exam material"
+  },
+  {
+    "domain": "la",
+    "level": 6,
+    "problem": "Prove that eigenvectors to pairwise distinct eigenvalues are linearly independent.",
+    "whoBeatsIt": "a degree student in the algebra core: the first genuine proof beyond matrix mechanics"
+  },
+  {
+    "domain": "la",
+    "level": 7,
+    "problem": "Prove every real symmetric matrix has an orthonormal basis of eigenvectors.",
+    "whoBeatsIt": "a graduate entrant: the spectral theorem needs orthogonality plus induction on subspaces"
+  },
+  {
+    "domain": "disc",
+    "level": 6,
+    "problem": "Prove there is no surjection from a set onto its power set.",
+    "whoBeatsIt": "a degree student in discrete math: Cantor's diagonal argument done rigorously"
+  },
+  {
+    "domain": "disc",
+    "level": 7,
+    "problem": "Show the halting problem is undecidable by a diagonal argument.",
+    "whoBeatsIt": "a graduate-entry CS student: undecidability via diagonalization is theory-core maturity"
+  },
+  {
+    "domain": "prob",
+    "level": 6,
+    "problem": "Prove the weak law of large numbers using Chebyshev's inequality.",
+    "whoBeatsIt": "a degree student in probability: the first inequality-driven limit proof"
+  },
+  {
+    "domain": "prob",
+    "level": 7,
+    "problem": "Show convergence in probability does not imply almost sure convergence.",
+    "whoBeatsIt": "a graduate entrant: separating convergence modes needs measure-level counterexamples"
   }
 ]

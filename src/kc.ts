@@ -80,10 +80,13 @@ export const KC_ID_LIST: string = DOMAINS.map((dom) => {
 // which-student-first-reliably-beats-it rule and cross-domain-verified. Rating becomes
 // nearest-exemplar MATCHING instead of abstract judgment — the way exam boards
 // calibrate raters with anchor items. Levels missing from a domain (calc 1-2, vec 1)
-// do not exist under that rule and are deliberately absent.
+// do not exist under that rule and are deliberately absent. Levels 6-7 extend the
+// ladder past the school system into degree mathematics (proof-based Analysis, algebra,
+// probability; then graduate-entry maturity) and exist only where that material
+// naturally lives — KC curriculum levels stay 1-5, so 6-7 rate problems, never skills.
 export interface DifficultyExemplar {
   domain: string;
-  level: 1 | 2 | 3 | 4 | 5;
+  level: 1 | 2 | 3 | 4 | 5 | 6 | 7;
   problem: string;
   whoBeatsIt: string; // rationale, dev-facing only — not sent to the model
 }
@@ -107,7 +110,7 @@ Fill "difficulty" and "skills":
 - "skills": on an unfinished attempt, the components solving this problem will require; on a finished attempt, the components the learner's OWN written route actually exercised — they may validly solve differently than you would, so tag their ink, not your derivation. Use ids ONLY from the list below; never invent or alter an id; if an exact skill is missing, use the closest listed id only when it genuinely covers the step, otherwise leave it out — a missing observation is cheaper than one filed under the wrong skill. Emit up to 6: any skill tagged "wrong" or "shaky" always makes the list and goes first, then load-bearing core skills, then incidental clean supports.
   - "role": "core" for what the problem is fundamentally about; "support" for atomic skills used incidentally (a sign or fraction step inside a calculus problem). Role is relative to THIS problem, not the skill's domain: in a pure fraction-arithmetic drill, core.arith.fraction-ops IS the core skill.
   - "signal": a finished attempt is a page you are grading CORRECT — every sub-part settled with its own marked final result — including one that turned CORRECT after earlier errors were fixed; whenever the attempt is not finished, emit every skill with "none". Only on a finished attempt: "wrong" only for a genuine mathematical error whose step exercised this skill — a convention-only difference (an absolute value from an even root in a simplification, an unrationalised denominator, a missing domain note, a decimal comma versus point) never makes any skill "wrong"; "shaky" only when the step exercising THIS skill was itself marked falsch, struck through, or redone — self-catching a slip shows the skill working, so it is shaky, not wrong, and a falsch mark on a step exercising a DIFFERENT skill, or a rewrite for neatness or legibility, does not make this skill shaky; "clean" if it was executed with no flagged error. Blame only the skill whose rule or step actually failed at the located error; every other exercised skill keeps its own observed signal — a located sign error tags core.arith.sign-rules "wrong" even if the final answer is now right, while a correctly-executed roots skill in the same problem stays "clean". Absence of an error hint is NOT evidence of clean execution, so leave out any skill you cannot see actually executed rather than calling it clean.
-- "difficulty" (1-5) rates the PROBLEM as an opponent: the level of the student who first reliably beats it. RATE BY MATCHING: find the closest exemplar in the DIFFICULTY EXEMPLARS bank below — same domain first, then any domain — and take that exemplar's level; a problem clearly between two exemplars takes the closer one. Stage meaning: 1 = Sek I routine; 2 = Sek II / early-BM routine; 3 = solid BM/FH-entry (the BM median); 4 = Passerelle entrance; 5 = university first-year stretch. Do NOT default to 3; commit to the matched level.
+- "difficulty" (1-7) rates the PROBLEM as an opponent: the level of the student who first reliably beats it. RATE BY MATCHING: find the closest exemplar in the DIFFICULTY EXEMPLARS bank below — same domain first, then any domain — and take that exemplar's level; a problem clearly between two exemplars takes the closer one. Stage meaning: 1 = Sek I routine; 2 = Sek II / early-BM routine; 3 = solid BM/FH-entry (the BM median); 4 = Passerelle entrance; 5 = university first-year stretch; 6 = proof-based degree core (rigorous Analysis, algebra, probability); 7 = graduate-entry maturity (qualifying-style proofs). A computation is never 6-7 however long: those levels require an actual proof or argument as the deliverable. Do NOT default to 3; commit to the matched level.
 
 Disambiguation: counting inside a probability computation tags prob.comb.counting; pure combinatorics tags disc.comb.*. A small hand-solved system tags alg.system.linear-small; a matrix or Gaussian system tags la.system.gaussian-elimination.
 
@@ -140,5 +143,6 @@ if (import.meta.env.DEV) {
     texts.add(e.problem);
     if (!domKeys.has(e.domain)) console.error(`[nl] exemplar has unknown domain ${e.domain}`);
     if (e.problem.length > 96) console.error(`[nl] exemplar too long: ${slot}`);
+    if (!(e.level >= 1 && e.level <= 7)) console.error(`[nl] exemplar has bad level: ${slot}`);
   }
 }

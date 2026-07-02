@@ -50,7 +50,7 @@ const SKILL_SOLUTION_SCHEMA = {
   required: ['problem', 'solution', 'verdict', 'correction', 'difficulty', 'skills'],
   properties: {
     ...SOLUTION_SCHEMA.properties,
-    difficulty: { type: 'integer', enum: [1, 2, 3, 4, 5] },
+    difficulty: { type: 'integer', enum: [1, 2, 3, 4, 5, 6, 7] },
     skills: {
       type: 'array',
       items: {

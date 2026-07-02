@@ -270,7 +270,7 @@ function reset() {
   color: var(--muted);
 }
 
-/* The six-rank ladder at a glance: held ranks are lit. */
+/* The rank ladder at a glance: held ranks are lit. */
 .rank-dots {
   display: flex;
   gap: 0.4rem;

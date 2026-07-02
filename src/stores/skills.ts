@@ -86,7 +86,7 @@ export interface SkillStore {
   version: 1;
   kcs: Record<string, KCState>;
   log: DomainSnapshot[];
-  diffHist: number[]; // realized observed-difficulty tally [d1..d5], a spread audit
+  diffHist: number[]; // realized observed-difficulty tally [d1..d7], a spread audit
   g: GlobalAbility;
   ratingLog: RatingSnapshot[];
 }
@@ -133,11 +133,13 @@ function clampInt(x: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, Math.round(x)));
 }
 function stepBucket(k: number): number {
-  return k <= 1 ? 1 : k === 2 ? 2 : k <= 4 ? 3 : k <= 6 ? 4 : 5;
+  // School range unchanged (<=6 steps); the top buckets let a long proof's step count
+  // corroborate a degree-level (6-7) model rating instead of always dragging it down.
+  return k <= 1 ? 1 : k === 2 ? 2 : k <= 4 ? 3 : k <= 6 ? 4 : k <= 9 ? 5 : k <= 12 ? 6 : 7;
 }
 function obsDiff(llm: number | null, steps: number): number {
   const sb = stepBucket(steps);
-  return clampInt(llm != null ? DIFF_LLM_W * llm + DIFF_STEP_W * sb : sb, 1, 5);
+  return clampInt(llm != null ? DIFF_LLM_W * llm + DIFF_STEP_W * sb : sb, 1, 7);
 }
 function credit(role: KCRole): number {
   return role === 'core' ? 1 : SUPPORT_CREDIT;
@@ -161,10 +163,10 @@ function load(): SkillStore {
           version: 1,
           kcs: p.kcs as Record<string, KCState>,
           log: Array.isArray(p.log) ? (p.log as DomainSnapshot[]) : [],
-          diffHist:
-            Array.isArray(p.diffHist) && p.diffHist.length === 5
-              ? (p.diffHist as number[])
-              : [0, 0, 0, 0, 0],
+          // A pre-degree-ladder store carries a length-5 tally; pad it so od 6-7 has slots.
+          diffHist: Array.isArray(p.diffHist)
+            ? [...(p.diffHist as number[]).slice(0, 7), 0, 0, 0, 0, 0, 0, 0].slice(0, 7)
+            : [0, 0, 0, 0, 0, 0, 0],
           g: p.g && typeof p.g.theta === 'number' ? { ...freshG(), ...(p.g as GlobalAbility) } : freshG(),
           ratingLog: Array.isArray(p.ratingLog) ? (p.ratingLog as RatingSnapshot[]) : [],
         };
@@ -173,7 +175,7 @@ function load(): SkillStore {
   } catch {
     /* fall through to a fresh store */
   }
-  return { version: 1, kcs: {}, log: [], diffHist: [0, 0, 0, 0, 0], g: freshG(), ratingLog: [] };
+  return { version: 1, kcs: {}, log: [], diffHist: [0, 0, 0, 0, 0, 0, 0], g: freshG(), ratingLog: [] };
 }
 
 export const skillStore = reactive(load());
@@ -214,7 +216,9 @@ function eloUpdate(o: KCObservation, sig: KCSignal, od: number, blameScale: numb
   // Difficulty anchor: blend the skill's curriculum level with the running average of
   // observed difficulty (which itself blends the model rating with an objective step count).
   kc.dbar = (1 - DBAR_ALPHA) * kc.dbar + DBAR_ALPHA * od;
-  const effDiff = clampInt(DIFF_LEVEL_W * levelOf(o.id) + DIFF_DBAR_W * kc.dbar, 1, 5);
+  // KC curriculum levels stay 1-5 (they are school skills); dbar can pull effDiff above 5
+  // when the problems actually played were degree-level, so hard play still pays per-skill.
+  const effDiff = clampInt(DIFF_LEVEL_W * levelOf(o.id) + DIFF_DBAR_W * kc.dbar, 1, 7);
   const dItem = (effDiff - 3) * D_SLOPE;
   const dEff = o.role === 'core' ? dItem : SUPPORT_D_SHRINK * dItem;
   const E = sigma(kc.theta - dEff);
@@ -264,7 +268,7 @@ export function applySkillPacket(packet: SkillPacket, steps: number, now: number
     if (ra !== rb) return rb - ra;
     return signalRank(b.signal) - signalRank(a.signal);
   });
-  const maxK = Math.min(MAXK_CAP, (packet.difficulty != null ? clampInt(packet.difficulty, 1, 5) : 3) + 2);
+  const maxK = Math.min(MAXK_CAP, (packet.difficulty != null ? clampInt(packet.difficulty, 1, 7) : 3) + 2);
   const use = signed.slice(0, maxK);
 
   const od = obsDiff(packet.difficulty != null ? packet.difficulty : null, steps);
@@ -333,7 +337,10 @@ const INFER_N0 = 8; // problems until inference carries half weight
 // R = 400 * level + 400, level = 3 + (theta - margin) / D_SLOPE.
 const RATING_PER_LEVEL = 400;
 const RATING_MIN = 400;
-const RATING_MAX = 2400;
+// Level 7 frontier (graduate-entry maturity). Reachable: the confirmation cap only
+// stalls positive updates once expected success on the hardest bank material (od 7)
+// hits .85, i.e. theta ~4.13 — comfortably above the 3.5 this cap corresponds to.
+const RATING_MAX = 3200;
 // One day of losses can cost at most about one rank band (0.45 logits ~ 300 rating).
 const MAX_DAY_DROP = 0.45;
 
@@ -374,7 +381,7 @@ export function ratingHistory(): RatingSnapshot[] {
 }
 
 export interface Placement {
-  level: number; // continuous 1..5, clamped
+  level: number; // continuous 1..7, clamped
   n: number; // problems behind the estimate
   settled: boolean; // enough evidence to show a marker
 }
@@ -382,7 +389,7 @@ export interface Placement {
 export function placement(): Placement | null {
   const g = skillStore.g;
   if (g.n === 0) return null;
-  const level = Math.min(5, Math.max(1, 3 + (g.theta - PLACE_SUCCESS_MARGIN) / D_SLOPE));
+  const level = Math.min(7, Math.max(1, 3 + (g.theta - PLACE_SUCCESS_MARGIN) / D_SLOPE));
   return { level, n: g.n, settled: g.n >= 5 };
 }
 
@@ -657,7 +664,7 @@ function upsertSnapshots(obs: KCObservation[], now: number): void {
 export function resetSkills(): void {
   for (const k of Object.keys(skillStore.kcs)) delete skillStore.kcs[k];
   skillStore.log.splice(0, skillStore.log.length);
-  skillStore.diffHist.splice(0, skillStore.diffHist.length, 0, 0, 0, 0, 0);
+  skillStore.diffHist.splice(0, skillStore.diffHist.length, 0, 0, 0, 0, 0, 0, 0);
   Object.assign(skillStore.g, freshG());
   skillStore.ratingLog.splice(0, skillStore.ratingLog.length);
   persist();
