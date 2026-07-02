@@ -72,6 +72,14 @@ export interface GlobalAbility {
   theta: number; // logits, anchored so 0 = even odds on a BM-median (level 3) problem
   RD: number; // rating deviation, drives step size + the "still settling" display
   n: number; // problems observed
+  day: number; // day of the last update, for the daily loss floor
+  dayStart: number; // theta at the start of that day
+}
+
+// One rating snapshot per day with activity — the source for the rating curve.
+export interface RatingSnapshot {
+  day: number;
+  r: number;
 }
 
 export interface SkillStore {
@@ -80,6 +88,7 @@ export interface SkillStore {
   log: DomainSnapshot[];
   diffHist: number[]; // realized observed-difficulty tally [d1..d5], a spread audit
   g: GlobalAbility;
+  ratingLog: RatingSnapshot[];
 }
 
 // ---- locked constants ----
@@ -139,7 +148,7 @@ function score(sig: KCSignal): number {
 
 // ---- store ----
 function freshG(): GlobalAbility {
-  return { theta: 0, RD: 1.2, n: 0 };
+  return { theta: 0, RD: 1.2, n: 0, day: 0, dayStart: 0 };
 }
 
 function load(): SkillStore {
@@ -156,14 +165,15 @@ function load(): SkillStore {
             Array.isArray(p.diffHist) && p.diffHist.length === 5
               ? (p.diffHist as number[])
               : [0, 0, 0, 0, 0],
-          g: p.g && typeof p.g.theta === 'number' ? (p.g as GlobalAbility) : freshG(),
+          g: p.g && typeof p.g.theta === 'number' ? { ...freshG(), ...(p.g as GlobalAbility) } : freshG(),
+          ratingLog: Array.isArray(p.ratingLog) ? (p.ratingLog as RatingSnapshot[]) : [],
         };
       }
     }
   } catch {
     /* fall through to a fresh store */
   }
-  return { version: 1, kcs: {}, log: [], diffHist: [0, 0, 0, 0, 0], g: freshG() };
+  return { version: 1, kcs: {}, log: [], diffHist: [0, 0, 0, 0, 0], g: freshG(), ratingLog: [] };
 }
 
 export const skillStore = reactive(load());
@@ -273,33 +283,95 @@ export function applySkillPacket(packet: SkillPacket, steps: number, now: number
   // validated observations (`signed`, before the per-KC maxK truncation, whose
   // worst-first ordering would bias a mean) at the observed difficulty. Uncertainty-
   // driven step, floored RD so late problems still move it a little; no time decay
-  // (ability does not evaporate in days the way recall does). Two asymmetries on
-  // purpose: a clean solve the estimate already expected (E >= .85) is confirmation,
-  // not information — no upward push, so grinding easy problems cannot farm the
-  // placement — while a miss at that same easy difficulty still counts but is damped
-  // by its Fisher information, so routine slips and abandoned pages erode a strong
-  // estimate slowly instead of ratcheting it away with no recovery path.
+  // (ability does not evaporate in days the way recall does). Stability rules:
+  // a clean solve the estimate already expected (E >= .85) is confirmation, not
+  // information — no upward push, so grinding easy problems cannot farm the rating;
+  // every miss counts but is Fisher-damped (full weight at E = .5, shrinking toward
+  // the extremes, no step discontinuity); and a single day can never cost more than
+  // about one rank band (the daily loss floor) — no chess rating moves 600 in a day.
   const gSc = signed.reduce((a, o) => a + score(o.signal as KCSignal), 0) / signed.length;
   const g = skillStore.g;
   const gE = sigma(g.theta - (od - 3) * D_SLOPE);
+  const gDay = Math.floor(now / DAY);
+  if (g.day !== gDay) {
+    g.day = gDay;
+    g.dayStart = g.theta;
+  }
   if (!(gSc >= gE && gE >= 0.85)) {
     const gK = Math.min(0.35, g.RD * g.RD);
-    const damp = gSc < gE && gE >= 0.85 ? 4 * gE * (1 - gE) : 1;
+    const damp = gSc < gE ? 4 * gE * (1 - gE) : 1;
     g.theta += gK * damp * (gSc - gE);
+    g.theta = Math.max(g.theta, g.dayStart - MAX_DAY_DROP);
     g.RD = Math.max(0.25, Math.sqrt(1 / (1 / (g.RD * g.RD) + Math.max(EPS, gE * (1 - gE)))));
   }
   g.n += 1;
+
+  // Rating snapshot for the curve: one point per active day, upserted so the last
+  // problem of the day wins. Bounded like the domain log.
+  {
+    const day = Math.floor(now / DAY);
+    const r = ratingOf(g.theta);
+    const existing = skillStore.ratingLog.find((s) => s.day === day);
+    if (existing) existing.r = r;
+    else skillStore.ratingLog.push({ day, r });
+    if (skillStore.ratingLog.length > MAX_SNAPSHOTS) skillStore.ratingLog.shift();
+  }
 
   upsertSnapshots(use, now);
   persist();
 }
 
-// ---- placement: where the global ability sits on the Swiss school ladder ----
+// ---- placement + rating: where the global ability sits ----
 
 // The level at which the learner would solve about 3 problems in 4 — the working
 // frontier, continuous on the 1..5 curriculum scale.
 const PLACE_SUCCESS_MARGIN = 1.1; // logit margin for ~75% success
 const INFER_N0 = 8; // problems until inference carries half weight
+
+// The rating is the same quantity on a chess-flavored scale: 400 points per curriculum
+// level, so 1600 = solid at the BM median and every band edge is a round-ish number.
+// R = 400 * level + 400, level = 3 + (theta - margin) / D_SLOPE.
+const RATING_PER_LEVEL = 400;
+const RATING_MIN = 400;
+const RATING_MAX = 2400;
+// One day of losses can cost at most about one rank band (0.45 logits ~ 300 rating).
+const MAX_DAY_DROP = 0.45;
+
+export function ratingOf(theta: number): number {
+  const level = 3 + (theta - PLACE_SUCCESS_MARGIN) / D_SLOPE;
+  return Math.round(Math.min(RATING_MAX, Math.max(RATING_MIN, RATING_PER_LEVEL * level + 400)));
+}
+
+export interface Rating {
+  value: number;
+  pm: number; // uncertainty half-width in rating points, from RD
+  n: number; // problems behind it
+  provisional: boolean;
+  weekDelta: number | null; // change over the last 7 active-ish days, null without history
+}
+
+export function rating(now = Date.now()): Rating | null {
+  const g = skillStore.g;
+  if (g.n === 0) return null;
+  const value = ratingOf(g.theta);
+  const pm = Math.round((RATING_PER_LEVEL / D_SLOPE) * g.RD);
+  const day = Math.floor(now / DAY);
+  const week = skillStore.ratingLog.filter((s) => s.day >= day - 7 && s.day < day);
+  const base = week.length ? week[0].r : null;
+  return {
+    value,
+    pm,
+    n: g.n,
+    // Provisional until the evidence is real AND the uncertainty has come down —
+    // a bare count clears too early (RD at n=5 is still ~±480 rating points).
+    provisional: g.n < 5 || g.RD > 0.55,
+    weekDelta: base !== null ? value - base : null,
+  };
+}
+
+export function ratingHistory(): RatingSnapshot[] {
+  return skillStore.ratingLog.slice();
+}
 
 export interface Placement {
   level: number; // continuous 1..5, clamped
@@ -587,6 +659,7 @@ export function resetSkills(): void {
   skillStore.log.splice(0, skillStore.log.length);
   skillStore.diffHist.splice(0, skillStore.diffHist.length, 0, 0, 0, 0, 0);
   Object.assign(skillStore.g, freshG());
+  skillStore.ratingLog.splice(0, skillStore.ratingLog.length);
   persist();
 }
 

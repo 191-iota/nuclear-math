@@ -1,27 +1,34 @@
 import { KC_DEFS } from '@/kc';
-import { kcView, placement, inferredMastery, type Placement } from '@/stores/skills';
+import {
+  kcView,
+  placement,
+  rating,
+  inferredMastery,
+  type Placement,
+  type Rating,
+} from '@/stores/skills';
 
 /**
- * Rank system: one ladder of six ranks anchored to the Swiss school progression.
+ * Rank system, chess-style: you solve problems, the problems' difficulty is the
+ * opponent's strength, and the resulting RATING is the one number that says where you
+ * stand. A rank is nothing but the label on a rating band — like 2500 reading
+ * "grandmaster" — so it arrives after a handful of problems, climbs (and falls) with
+ * the curve, and never asks you to grind out coverage.
  *
- * The anchor is free data the app already has: every knowledge component carries a
- * curriculum level (1-2 Sek, 3 BM/FH core, 4 Passerelle, 5 university stretch), and the
- * estimator keeps a decay-aware mastery per component plus one GLOBAL ability updated by
- * every solved problem. Band fill is EXPECTED mastery mass, three ingredients:
- *   - a SECURED component (>= 70% shown mastery on n >= 2) counts fully;
- *   - a touched-but-unsecured component counts partially by its own mastery;
- *   - an untouched component counts by what the global ability predicts for its level,
- *     capped so inference can start a band but never finish it — placement is fast,
- *     securing is earned.
- * Because mastery decays as skills go stale, ranks can decay too: held, not owned.
+ * The scale is anchored to the Swiss school ladder through the problem difficulties
+ * the assessor already rates (1-2 Sek, 3 BM/FH median, 4 Passerelle, 5 uni stretch):
+ * 400 rating points per curriculum level, 1600 = solid at the BM median. Climbing past
+ * a band therefore requires beating problems of the next band — grinding easy material
+ * cannot farm the rating (confirmation cap in the estimator).
+ *
+ * The per-skill map (secured skills, decay, domain mastery) stays as the DIAGNOSTIC
+ * layer that steers what to drill; it no longer gates the rank.
  */
 
 export const SECURE_PCT = 70;
 export const SECURE_MIN_N = 2;
-// A touched-but-unsecured skill earns partial credit on this ramp of its mastery.
 const PARTIAL_LO = 40;
 const PARTIAL_CAP = 0.8;
-// Inference (from the global ability) contributes at most half of any band.
 const INFER_BAND_CAP = 0.5;
 const INFER_KC_CAP = 0.8;
 
@@ -38,59 +45,29 @@ export const BANDS: StageBand[] = [
   { key: 'uni', label: 'Uni stretch', short: 'Uni', levels: [5] },
 ];
 
-interface Gate {
-  band: string;
-  pct: number;
-}
-
 export interface RankDef {
   n: number; // 1..6
   title: string;
-  anchor: string; // what holding this rank means, in plain academic terms
-  gates: Gate[];
+  anchor: string; // what the band means, in plain academic terms
+  minRating: number;
 }
 
 export const RANKS: RankDef[] = [
-  { n: 1, title: 'Apprentice', anchor: 'first skills tracked', gates: [] },
-  { n: 2, title: 'Artisan', anchor: 'Sek foundations solid', gates: [{ band: 'sek', pct: 60 }] },
-  {
-    n: 3,
-    title: 'Operator',
-    anchor: 'BM/FH core in hand',
-    gates: [
-      { band: 'sek', pct: 70 },
-      { band: 'bm', pct: 40 },
-    ],
-  },
-  {
-    n: 4,
-    title: 'Vanguard',
-    anchor: 'Passerelle band opening',
-    gates: [
-      { band: 'bm', pct: 70 },
-      { band: 'pas', pct: 30 },
-    ],
-  },
-  {
-    n: 5,
-    title: 'Master',
-    anchor: 'Passerelle secured, uni stretch underway',
-    gates: [
-      { band: 'bm', pct: 85 },
-      { band: 'pas', pct: 60 },
-      { band: 'uni', pct: 25 },
-    ],
-  },
-  {
-    n: 6,
-    title: 'Grandmaster',
-    anchor: 'uni-ready across the map',
-    gates: [
-      { band: 'pas', pct: 80 },
-      { band: 'uni', pct: 60 },
-    ],
-  },
+  // Apprentice starts at the rating floor (ratings clamp at 400), so the progress bar
+  // through the band starts empty instead of a third full.
+  { n: 1, title: 'Apprentice', anchor: 'finding footing in Sek material', minRating: 400 },
+  { n: 2, title: 'Artisan', anchor: 'Sek held, BM opening', minRating: 1200 },
+  { n: 3, title: 'Operator', anchor: 'solid at the BM core', minRating: 1500 },
+  { n: 4, title: 'Vanguard', anchor: 'pressing into the Passerelle band', minRating: 1800 },
+  { n: 5, title: 'Master', anchor: 'Passerelle held, uni stretch underway', minRating: 2100 },
+  { n: 6, title: 'Grandmaster', anchor: 'uni-ready', minRating: 2300 },
 ];
+
+export function rankForRating(r: number): RankDef {
+  let held = RANKS[0];
+  for (const def of RANKS) if (r >= def.minRating) held = def;
+  return held;
+}
 
 export interface BandStat {
   key: string;
@@ -98,20 +75,22 @@ export interface BandStat {
   short: string;
   secured: number; // directly secured count
   total: number;
-  fill: number; // expected mastery mass, 0..total (drives gates and the bars)
-  pct: number; // rounded display percent of fill
+  pct: number; // expected mastery mass, rounded display percent
 }
 
 export interface RankView {
   rank: RankDef;
   next: RankDef | null;
+  rating: Rating | null;
   bands: BandStat[];
   place: Placement | null;
-  nextProgress: number; // 0..100 toward the least-satisfied gate of the next rank
-  nextStep: string; // plain-language bottleneck line
-  nextBand: string | null; // band key of the bottleneck, the drill target band
+  nextProgress: number; // 0..100 through the current rating band
+  nextStep: string; // plain-language line toward the next rank
 }
 
+// The skill-map fills for the axis: expected mastery mass per band (secured = 1,
+// touched-partial on a ramp, untouched = capped inference — monotone under probing).
+// Diagnostic only; the rank no longer gates on this.
 function bandStats(now: number): BandStat[] {
   const views = new Map(kcView(now).map((v) => [v.id, v]));
   return BANDS.map((b) => {
@@ -127,10 +106,6 @@ function bandStats(now: number): BandStat[] {
           secured += 1;
           direct += 1;
         } else {
-          // Monotone under probing: a touched-but-unsecured skill is never worth LESS
-          // than it was as an untouched inference — the excess above the partial ramp
-          // stays routed through the capped inference pool, so probing a skill (the
-          // Drill button's whole point) can only move the gate forward.
           const partial = Math.min(
             PARTIAL_CAP,
             Math.max(0, (v.masteryPct - PARTIAL_LO) / (100 - PARTIAL_LO)),
@@ -149,64 +124,40 @@ function bandStats(now: number): BandStat[] {
       short: b.short,
       secured,
       total: members.length,
-      fill,
       pct: members.length ? Math.round((100 * fill) / members.length) : 0,
     };
   });
 }
 
-// Compare on the exact fraction, not the display-rounded pct, so the "about N more"
-// arithmetic in nextStep can never disagree with the gate itself.
-function gateHolds(g: Gate, bands: BandStat[]): boolean {
-  const b = bands.find((x) => x.key === g.band);
-  return !!b && 100 * b.fill >= g.pct * b.total;
-}
-
 export function rankView(now = Date.now()): RankView {
+  const r = rating(now);
   const bands = bandStats(now);
-  let held = RANKS[0];
-  for (const r of RANKS) {
-    if (r.gates.every((g) => gateHolds(g, bands))) held = r;
-    else break; // ranks are strictly ordered; the first failed rank ends the climb
-  }
-  const next = RANKS.find((r) => r.n === held.n + 1) ?? null;
+  const held = rankForRating(r?.value ?? 0);
+  const next = RANKS.find((d) => d.n === held.n + 1) ?? null;
 
-  let nextProgress = 100;
+  let nextProgress = 0;
   let nextStep = '';
-  let nextBand: string | null = null;
-  if (next) {
-    let worst = 1;
-    let worstGate: Gate | null = null;
-    for (const g of next.gates) {
-      const b = bands.find((x) => x.key === g.band);
-      const frac = b ? Math.min(1, (100 * b.fill) / (g.pct * b.total)) : 0;
-      if (worstGate === null || frac < worst) {
-        worst = frac;
-        worstGate = g;
-      }
-    }
-    nextProgress = Math.round(100 * worst);
-    if (worstGate) {
-      const b = bands.find((x) => x.key === worstGate!.band)!;
-      nextBand = b.key;
-      const need = Math.max(0, Math.ceil((worstGate.pct / 100) * b.total - b.fill));
-      nextStep =
-        need > 0
-          ? `about ${need} more ${b.label} skill${need === 1 ? '' : 's'}`
-          : 'hold your secured skills against decay';
-    }
+  if (r && next) {
+    const span = next.minRating - held.minRating;
+    nextProgress = Math.round(
+      (100 * Math.min(span, Math.max(0, r.value - held.minRating))) / span,
+    );
+    nextStep = `${next.minRating - r.value} rating to go — beat problems at your level or above`;
+  } else if (!r && next) {
+    nextStep = 'solve a few problems to get rated';
   }
-  return { rank: held, next, bands, place: placement(), nextProgress, nextStep, nextBand };
+  return { rank: held, next, rating: r, bands, place: placement(), nextProgress, nextStep };
 }
 
-// The skill to drill for rank progress: an untouched component in the bottleneck band
-// (probing it both places you faster and fills the gate), else its weakest touched one.
+// The skill to drill for rating progress: a weak-or-unshown skill in the band at the
+// learner's working frontier (the placement level, rounded up — beating problems at or
+// above your level is what moves the rating). Falls back to the BM band unplaced.
 export function rankDrillTarget(now = Date.now()): { id: string; masteryPct: number; label: string } | null {
-  const rv = rankView(now);
-  const bandKey = rv.nextBand;
-  const band = BANDS.find((b) => b.key === bandKey);
-  if (!band) return null;
+  const p = placement();
+  const frontier = p ? Math.min(5, Math.max(1, Math.ceil(p.level))) : 3;
+  const band = BANDS.find((b) => b.levels.includes(frontier)) ?? BANDS[1];
   const members = KC_DEFS.filter((d) => band.levels.includes(d.level));
+  if (!members.length) return null;
   const views = new Map(kcView(now).map((v) => [v.id, v]));
   const untouched = members.filter((d) => !views.has(d.id));
   if (untouched.length) {

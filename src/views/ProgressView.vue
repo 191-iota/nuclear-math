@@ -7,6 +7,7 @@ import {
   skillSummary,
   trajectory,
   overallTrajectory,
+  ratingHistory,
   resetSkills,
   type DomainRollup,
 } from '@/stores/skills';
@@ -14,7 +15,9 @@ import { generateDrill, type DrillProblem } from '@/drill';
 import { rankView, rankDrillTarget, RANKS } from '@/rank';
 import MathText from '@/components/MathText.vue';
 
-// Sentinel domain key for the aggregated "all touched domains" trajectory.
+// Sentinel keys for the over-time chart: the rating curve (the universal "how fast am
+// I getting better" signal, default) and the all-domains mastery aggregate.
+const RATING = '__rating__';
 const OVERALL = '__all__';
 
 // All reactive off the skill store: reading the selectors inside a computed registers
@@ -26,23 +29,57 @@ const touchedDomains = computed(() => domains.value.filter((d) => d.touched > 0)
 const ranks = computed(() => rankings());
 const rec = computed(() => recommendPractice());
 
-const selectedDomain = ref(OVERALL);
+const selectedDomain = ref(RATING);
 const traj = computed(() =>
   selectedDomain.value === OVERALL
     ? overallTrajectory()
-    : selectedDomain.value
+    : selectedDomain.value && selectedDomain.value !== RATING
       ? trajectory(selectedDomain.value)
       : [],
 );
 
-// Mastery trajectory as a line. y is the 0-100 mastery index, so y = 100 - pct maps
-// straight into the 0..100 viewBox; x is evenly spaced across the days.
+// The plotted series: rating points (own y-domain, padded) or mastery 0-100.
+const series = computed<number[]>(() => {
+  if (selectedDomain.value === RATING) {
+    const h = ratingHistory();
+    return h.length >= 2 ? h.map((s) => s.r) : [];
+  }
+  return traj.value.map((p) => p.masteryPct);
+});
+// x positions, normalized 0..1. The rating log holds one point per ACTIVE day, so its
+// x is proportional to the calendar day — a three-week break renders as a flat gap,
+// keeping the curve's slope an honest per-time "how fast am I getting better".
+const xsNorm = computed<number[]>(() => {
+  if (selectedDomain.value === RATING) {
+    const h = ratingHistory();
+    if (h.length < 2) return [];
+    const a = h[0].day;
+    const b = h[h.length - 1].day;
+    return h.map((s) => (b === a ? 1 : (s.day - a) / (b - a)));
+  }
+  const n = traj.value.length;
+  return traj.value.map((_, i) => (n <= 1 ? 1 : i / (n - 1)));
+});
+const yDomain = computed<[number, number]>(() => {
+  if (selectedDomain.value !== RATING) return [0, 100];
+  const v = series.value;
+  if (!v.length) return [0, 100];
+  const lo = Math.min(...v);
+  const hi = Math.max(...v);
+  const pad = Math.max(40, (hi - lo) * 0.15);
+  return [lo - pad, hi + pad];
+});
+
 const VW = 1000;
 const VH = 100;
 const trajPts = computed(() => {
-  const t = traj.value;
-  const n = t.length;
-  return t.map((p, i) => ({ x: n <= 1 ? VW : (i / (n - 1)) * VW, y: VH - p.masteryPct }));
+  const v = series.value;
+  const xs = xsNorm.value;
+  const [lo, hi] = yDomain.value;
+  return v.map((val, i) => ({
+    x: (xs[i] ?? 1) * VW,
+    y: VH - ((val - lo) / (hi - lo)) * VH,
+  }));
 });
 const trajLine = computed(() =>
   trajPts.value.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' '),
@@ -52,17 +89,30 @@ const trajArea = computed(() => {
   if (ps.length < 2) return '';
   return `M${ps[0].x.toFixed(1)},${VH} ${trajLine.value.slice(1)} L${ps[ps.length - 1].x.toFixed(1)},${VH} Z`;
 });
+const chartCaption = computed(() => {
+  if (selectedDomain.value === RATING) {
+    const h = ratingHistory();
+    if (h.length < 2) return null;
+    return {
+      left: `${h.length} active days · from ${h[0].r}`,
+      right: `now ${h[h.length - 1].r}`,
+    };
+  }
+  const t = traj.value;
+  if (t.length < 2) return null;
+  return { left: `${t.length} days`, right: `now ${t[t.length - 1].masteryPct}%` };
+});
 
 function reset() {
   if (confirm('Reset all tracked skill mastery? This cannot be undone.')) {
     resetSkills();
-    selectedDomain.value = OVERALL;
+    selectedDomain.value = RATING;
   }
 }
 
-// On-demand drill problem: one cheap text call turns the rank bottleneck (or, without
-// one, the weakest-skill recommendation) into an actual problem to copy onto paper.
-// Probing an untouched skill in the gate band both places you faster and fills the gate.
+// On-demand drill problem: one cheap text call turns the frontier-band target (or,
+// without one, the weakest-skill recommendation) into an actual problem to copy onto
+// paper. Beating problems at or above your level is what moves the rating.
 const drill = ref<DrillProblem | null>(null);
 const drillBusy = ref(false);
 const drillError = ref(false);
@@ -134,13 +184,30 @@ function domTip(d: DomainRollup): string {
             <div class="rank-anchor muted">rank {{ rank.rank.n }} of {{ RANKS.length }} · {{ rank.rank.anchor }}</div>
           </div>
           <span class="spacer" />
+          <div v-if="rank.rating" class="rating-wrap">
+            <div class="rating-num mono">
+              {{ rank.rating.value }}<span v-if="rank.rating.provisional" class="rating-pm">?</span>
+            </div>
+            <div class="rating-sub mono muted">
+              <template v-if="rank.rating.provisional">
+                ±{{ rank.rating.pm }} · {{ rank.rating.n }} problem{{ rank.rating.n === 1 ? '' : 's' }}
+              </template>
+              <template v-else-if="rank.rating.weekDelta !== null">
+                <span :class="rank.rating.weekDelta >= 0 ? 'delta-up' : 'delta-down'">
+                  {{ rank.rating.weekDelta >= 0 ? '▲' : '▼' }} {{ Math.abs(rank.rating.weekDelta) }}
+                </span>
+                this week
+              </template>
+              <template v-else>rating · {{ rank.rating.n }} problems</template>
+            </div>
+          </div>
           <div class="rank-dots" aria-hidden="true">
             <span
               v-for="r in RANKS"
               :key="r.n"
               class="dot"
               :class="{ held: r.n <= rank.rank.n }"
-              :title="r.title"
+              :title="`${r.title} · ${r.minRating}+`"
             />
           </div>
         </div>
@@ -161,17 +228,17 @@ function domTip(d: DomainRollup): string {
         </div>
         <div class="axis-caption mono muted">
           <template v-if="rank.place && rank.place.settled">
-            operating around {{ placeBand }} level · {{ rank.place.n }} problems
+            operating around {{ placeBand }} level · skill map fills as you show each skill
           </template>
           <template v-else-if="rank.place">
             placing… {{ rank.place.n }}/5 problems
           </template>
           <span class="spacer" />
-          <span>held, not owned — secured skills decay</span>
+          <span>map only — the rating is the score</span>
         </div>
 
         <div v-if="rank.next" class="gate-row">
-          <span class="gate-line muted">to {{ rank.next.title }}</span>
+          <span class="gate-line muted">to {{ rank.next.title }} ({{ rank.next.minRating }})</span>
           <span class="gate-track"><span class="fill" :style="{ width: rank.nextProgress + '%' }" /></span>
           <span class="gate-line">{{ rank.nextStep }}</span>
           <button class="ghost" :disabled="drillBusy" @click="makeDrill">
@@ -235,16 +302,23 @@ function domTip(d: DomainRollup): string {
 
       <div class="card">
         <div class="row" style="margin-bottom: 0.4rem">
-          <strong style="font-size: 0.85rem">Mastery over time</strong>
+          <strong style="font-size: 0.85rem">Over time</strong>
           <span class="spacer" />
         </div>
         <div class="tabs domsel">
           <button
             class="tab"
+            :class="{ active: selectedDomain === RATING }"
+            @click="selectedDomain = RATING"
+          >
+            rating
+          </button>
+          <button
+            class="tab"
             :class="{ active: selectedDomain === OVERALL }"
             @click="selectedDomain = OVERALL"
           >
-            overall
+            mastery
           </button>
           <button
             v-for="d in touchedDomains"
@@ -256,21 +330,21 @@ function domTip(d: DomainRollup): string {
             {{ d.domain }}
           </button>
         </div>
-        <template v-if="traj.length >= 2">
+        <template v-if="series.length >= 2">
           <svg class="trend" :viewBox="`0 0 ${VW} ${VH}`" preserveAspectRatio="none" aria-hidden="true">
             <line class="t-grid" x1="0" :y1="VH / 2" :x2="VW" :y2="VH / 2" />
             <path :d="trajArea" class="t-area" />
             <path :d="trajLine" class="t-line" />
           </svg>
-          <div class="t-axis mono">
-            <span>{{ traj.length }} days</span>
+          <div v-if="chartCaption" class="t-axis mono">
+            <span>{{ chartCaption.left }}</span>
             <span class="spacer" />
-            <span>now {{ traj[traj.length - 1].masteryPct }}%</span>
+            <span>{{ chartCaption.right }}</span>
           </div>
         </template>
         <p v-else class="muted" style="font-size: 0.72rem; margin-top: 0.6rem">
-          A line builds here once there are two days of practice. Level is demonstrated mastery and
-          stays sticky, so going rusty shows as the line drifting down, not a sudden drop.
+          The rating curve builds here from your second active day — its slope is how fast you are
+          getting better. Mastery views drift down when a domain goes rusty, never in sudden drops.
         </p>
       </div>
 
@@ -358,6 +432,7 @@ function domTip(d: DomainRollup): string {
   display: flex;
   align-items: center;
   gap: 0.9rem;
+  flex-wrap: wrap; /* rating + dots drop to a second line on narrow screens */
 }
 
 .rank-badge {
@@ -382,6 +457,36 @@ function domTip(d: DomainRollup): string {
 
 .rank-anchor {
   font-size: 0.76rem;
+}
+
+/* The rating: THE number. */
+.rating-wrap {
+  text-align: right;
+  margin-right: 1.1rem;
+}
+
+.rating-num {
+  font-size: 1.7rem;
+  line-height: 1.05;
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+}
+
+.rating-pm {
+  font-size: 1rem;
+  color: var(--muted);
+}
+
+.rating-sub {
+  font-size: 0.64rem;
+}
+
+.delta-up {
+  color: var(--good);
+}
+
+.delta-down {
+  color: var(--muted);
 }
 
 /* The six-rank ladder at a glance: held ranks are lit. */

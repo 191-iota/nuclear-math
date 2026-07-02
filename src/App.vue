@@ -63,6 +63,7 @@ const hasRank = computed(() => Object.values(skillStore.kcs).some((k) => k.n > 0
       >
         <span class="rankchip-n">{{ rank.rank.n }}</span>
         <span class="rankchip-t">{{ rank.rank.title }}</span>
+        <span v-if="rank.rating" class="rankchip-r">{{ rank.rating.value }}{{ rank.rating.provisional ? '?' : '' }}</span>
       </button>
       <button
         class="theme"

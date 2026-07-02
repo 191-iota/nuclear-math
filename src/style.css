@@ -274,6 +274,11 @@ label {
   font-size: 0.62rem;
 }
 
+.rankchip-r {
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+}
+
 .content {
   flex: 1;
   min-height: 0;
