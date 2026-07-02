@@ -142,6 +142,44 @@ const ORD_DE: Record<number, string> = {
   4: 'vierte', 5: 'fünfte', 6: 'sechste', 7: 'siebte', 8: 'achte', 9: 'neunte', 10: 'zehnte',
 };
 
+// LaTeX spacing / sizing / wrapper noise, shared by the $-span renderer and the global pass.
+// GPT models emit \left( \Bigg[ \, \text{...} loose in prose (outside any delimiter), where the
+// old render-only strip never saw them and the bare-name fallback spoke them as "left", "Bigg".
+function stripWrappers(s: string): string {
+  return s
+    // A doubled backslash before a letter is a JSON-transport escaping artifact (\\frac),
+    // not a LaTeX row break; collapse it so the command is recognized downstream.
+    .replace(/\\\\(?=[A-Za-z])/g, '\\')
+    .replace(/\\(?:left|right|middle)\b/g, ' ')
+    .replace(/\\[bB]igg?[lrm]?\b/g, ' ')
+    .replace(/\\(?:displaystyle|limits|nolimits|scriptstyle|textstyle)\b/g, ' ')
+    .replace(/\\(?:quad|qquad|enspace|thinspace|smallskip|medskip)\b/g, ' ')
+    .replace(/\\(?:hspace|vspace|phantom)\*?\{[^{}]*\}/g, ' ')
+    .replace(/\\[,;:!]/g, ' ')
+    .replace(/\\ /g, ' ')
+    .replace(/\\begin\{[^}]*\}|\\end\{[^}]*\}/g, ' ')
+    // An attached & is LaTeX alignment; a free-standing prose "a & b" stays for TTS to read.
+    .replace(/&(?=\S)|(?<=\S)&/g, ' ')
+    .replace(/\\\\/g, ' ')
+    .replace(/\\text(?:bf|it|rm|sf|tt|normal)?\{([^{}]*)\}/g, ' $1 ')
+    .replace(/\\(?:mathrm|mathbf|mathbb|mathcal|mathsf|mathit|mathfrak|boldsymbol|operatorname\*?)(\{[^{}]*\}|[A-Za-z0-9])/g, (_m, a: string) => ` ${a.replace(/^\{|\}$/g, '')} `)
+    .replace(/\\(?:lvert|rvert|vert)\b/g, '|')
+    .replace(/\\(?:lVert|rVert|Vert)\b/g, '‖');
+}
+
+// ASCII math words GPT writes when told to avoid LaTeX: sqrt(xy) / abs(x), plus the
+// python-style ** power. Bare "sqrt" is never prose, so this is unambiguous and runs in
+// both the span renderer and the global pass. sqrt normalizes onto the unicode radical,
+// which expandRadicals already knows how to speak; abs onto |...| for expandPipes/promotion.
+function normalizeAsciiFuncs(s: string): string {
+  s = s.replace(/(?<!\\)\bsqrt\b\s*/g, '√');
+  s = s.replace(/(?<!\\)\babs\s*\(([^()]*)\)/g, '|$1|');
+  s = s.replace(/([A-Za-z0-9)\]}])\s*\*\*\s*(?=[A-Za-z0-9({])/g, '$1^');
+  // ASCII arrows onto their unicode forms, which the symbol table already speaks.
+  s = s.replace(/-+>/g, ' → ').replace(/=>/g, ' ⇒ ');
+  return s;
+}
+
 // Read a balanced group starting at s[i] === '{'; return [content, indexAfterClosingBrace].
 function readBrace(s: string, i: number): [string, number] {
   let depth = 0;
@@ -172,17 +210,9 @@ function readArg(s: string, i: number): [string, number] {
 function render(input: string, lang: SpeechLang): string {
   let s = input;
 
-  // 1. drop spacing / sizing / wrappers.
-  s = s
-    .replace(/\\(left|right|bigl|bigr|Bigl|Bigr|big|Big)\b/g, ' ')
-    .replace(/\\(displaystyle|limits|nolimits)\b/g, ' ')
-    .replace(/\\(quad|qquad)\b/g, ' ')
-    .replace(/\\[,;:!]/g, ' ')
-    .replace(/\\ /g, ' ')
-    .replace(/\\begin\{[^}]*\}|\\end\{[^}]*\}/g, ' ')
-    .replace(/&|\\\\/g, ' ');
-  s = s.replace(/\\text\{([^{}]*)\}/g, ' $1 ');
-  s = s.replace(/\\(mathrm|mathbf|mathbb|mathcal|mathsf|mathit|boldsymbol|operatorname)\{([^{}]*)\}/g, ' $2 ');
+  // 1. drop spacing / sizing / wrappers, and normalize the ASCII math words GPT emits.
+  s = stripWrappers(s);
+  s = normalizeAsciiFuncs(s);
 
   // 2. big operators with bounds (before generic ^ / _ grab the limits).
   s = expandBigOps(s, lang);
@@ -222,7 +252,7 @@ function render(input: string, lang: SpeechLang): string {
   s = s.replace(/\\([A-Za-z]+)/g, ' $1 ').replace(/\\(.)/g, ' ');
 
   // 12. cleanup: drop leftover math punctuation, collapse whitespace.
-  s = s.replace(/[{}$^_|\\]/g, ' ').replace(/[()]/g, ' ');
+  s = s.replace(/[{}$^_|\\]/g, ' ').replace(/[()[\]]/g, ' ');
   s = s.replace(/\s+([.,;:!?])/g, '$1').replace(/\s{2,}/g, ' ').trim();
   return s;
 }
@@ -366,7 +396,7 @@ function normalizeScripts(s: string, lang: SpeechLang): string {
 
 function expandScripts(s: string, lang: SpeechLang): string {
   // Superscripts (LaTeX ^{...}/^x and the ASCII form; unicode + charge already normalized).
-  s = replaceAll(s, /\^(\{[^{}]*\}|-?[A-Za-z0-9]+|.)/g, (_m, raw: string) => {
+  s = replaceAll(s, /\^(\{[^{}]*\}|\\[A-Za-z]+|-?[A-Za-z0-9]+|.)/g, (_m, raw: string) => {
     const inner = raw.replace(/^\{|\}$/g, '');
     if (inner === '2') return ` ${pick(lang, 'squared', 'hoch 2')} `;
     if (inner === '3') return ` ${pick(lang, 'cubed', 'hoch 3')} `;
@@ -394,14 +424,62 @@ function expandScripts(s: string, lang: SpeechLang): string {
   return s;
 }
 
-// Unicode radicals as prefix operators: √A, ∛A (cube), ∜A (fourth). The operand is the next
-// braced/parenthesised group or single token, rendered so √(a+b) speaks its inside.
+// Read a balanced group starting at s[i] === '('; return [content, indexAfterClosingParen].
+function readParen(s: string, i: number): [string, number] {
+  let depth = 0;
+  for (let j = i; j < s.length; j += 1) {
+    if (s[j] === '(') depth += 1;
+    else if (s[j] === ')') {
+      depth -= 1;
+      if (depth === 0) return [s.slice(i + 1, j), j + 1];
+    }
+  }
+  return [s.slice(i + 1), s.length];
+}
+
+// Unicode radicals as prefix operators: √A, ∛A (cube), ∜A (fourth) — and, via
+// normalizeAsciiFuncs, every bare "sqrt" GPT writes. The operand is the next braced or
+// (balanced) parenthesised group, an optional [n] index, or a single token, rendered so
+// √((a+b)/c) speaks its whole inside.
 function expandRadicals(s: string, lang: SpeechLang): string {
-  return s.replace(/([√∛∜])\s*(\{[^{}]*\}|\([^()]*\)|[A-Za-z0-9]+|.)/g, (_m, r: string, arg: string) => {
-    const idx = r === '∛' ? '3' : r === '∜' ? '4' : null;
-    const inner = arg.replace(/^[({]|[)}]$/g, '');
-    return ` ${rootPhrase(idx, render(inner, lang), lang)} `;
-  });
+  let out = '';
+  let i = 0;
+  while (i < s.length) {
+    const ch = s[i];
+    if (ch === '√' || ch === '∛' || ch === '∜') {
+      let idx: string | null = ch === '∛' ? '3' : ch === '∜' ? '4' : null;
+      let k = i + 1;
+      while (k < s.length && s[k] === ' ') k += 1;
+      if (s[k] === '[') {
+        const close = s.indexOf(']', k);
+        if (close > k) {
+          idx = render(s.slice(k + 1, close), lang);
+          k = close + 1;
+          while (k < s.length && s[k] === ' ') k += 1;
+        }
+      }
+      let arg = '';
+      if (s[k] === '{') {
+        const g = readBrace(s, k);
+        arg = g[0];
+        k = g[1];
+      } else if (s[k] === '(') {
+        const g = readParen(s, k);
+        arg = g[0];
+        k = g[1];
+      } else {
+        const m = /^(\d+(?:[.,]\d+)?|[A-Za-z0-9]+)/.exec(s.slice(k));
+        arg = m ? m[0] : (s[k] ?? '');
+        k += arg.length || 1;
+      }
+      out += ` ${rootPhrase(idx, render(arg, lang), lang)} `;
+      i = k;
+      continue;
+    }
+    out += ch;
+    i += 1;
+  }
+  return out;
 }
 
 // Space out a chemical formula so a digit count is spoken apart from its element (H2O -> "H 2 O").
@@ -442,7 +520,8 @@ function applyAsciiOps(s: string, lang: SpeechLang): string {
     .replace(/([0-9A-Za-z)\]])\s*\/\s*([0-9A-Za-z(\[])/g, `$1 ${pick(lang, 'over', 'durch')} $2`)
     .replace(/(^|[\s(=+])-\s*(?=[0-9A-Za-z.\\(])/g, `$1${pick(lang, 'minus', 'minus')} `)
     .replace(/([0-9A-Za-z)\]])\s*-\s*(?=[0-9A-Za-z(])/g, `$1 ${pick(lang, 'minus', 'minus')} `)
-    .replace(/(\d):(\d)/g, `$1 ${pick(lang, 'to', 'zu')} $2`);
+    .replace(/(\d):(\d)/g, `$1 ${pick(lang, 'to', 'zu')} $2`)
+    .replace(/(\d)\s*%/g, `$1 ${pick(lang, 'percent', 'Prozent')}`);
   // digit immediately followed by a letter -> speak them apart (5x -> 5 x), never adds "times".
   // An ordinal suffix (4th, 2nd) is left whole so a spoken "the 4th root" is not split.
   s = s.replace(/(\d)(?=[A-Za-z])(?!(?:st|nd|rd|th)\b)/g, '$1 ');
@@ -484,18 +563,29 @@ export function mathToSpeech(input: string, lang: SpeechLang): string {
     return `${String.fromCharCode(0xe100 + masks.length - 1)}`;
   };
 
-  // Escaped $ and % first, so \$ can never open a span.
+  // Escaped $ and % first, so \$ can never open a span. Spaced, so "40\%" cannot fuse
+  // into the unspeakable "40Prozent" on restore.
   let s = input
-    .replace(/\\\$/g, () => seal(pick(lang, 'dollar', 'Dollar')))
-    .replace(/\\%/g, () => seal(pick(lang, 'percent', 'Prozent')));
+    .replace(/\\\$/g, () => ` ${seal(pick(lang, 'dollar', 'Dollar'))} `)
+    .replace(/\\%/g, () => ` ${seal(pick(lang, 'percent', 'Prozent'))} `);
+
+  // Markdown residue GPT models wrap corrections in; spoken as the plain text inside.
+  s = s.replace(/^\s*(?:[-*>•#]+\s+)+/, '').replace(/`+/g, ' ');
+  s = s.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/__([^_]+)__/g, '$1');
 
   // Protect hyphenated words and contractions BEFORE anything else can mathify them.
-  s = s.replace(/[A-Za-zÀ-ÿ]+(?:-[A-Za-zÀ-ÿ]+)+/g, (m) => seal(m));
+  // A chain of single letters (x-y, a-b) is subtraction, not a word — that one stays math.
+  s = s.replace(/[A-Za-zÀ-ÿ]+(?:-[A-Za-zÀ-ÿ]+)+/g, (m) =>
+    m.split('-').some((part) => part.length >= 2) ? seal(m) : m,
+  );
   s = s.replace(/[A-Za-zÀ-ÿ]+['’][A-Za-zÀ-ÿ]/g, (m) => seal(m.slice(0, -1)) + m.slice(-1));
 
-  // $$...$$ then $...$ -> render inner -> sealed (protected, spaced) result.
+  // $$...$$ / \[...\] / $...$ / \(...\) -> render inner -> sealed (protected, spaced) result.
+  // GPT models default to the backslash delimiters, which used to fall through to TTS raw.
   s = s.replace(/\$\$([\s\S]+?)\$\$/g, (_m, inner) => ` ${seal(render(inner, lang))} `);
+  s = s.replace(/\\\[([\s\S]+?)\\\]/g, (_m, inner) => ` ${seal(render(inner, lang))} `);
   s = s.replace(/\$([^$]+)\$/g, (_m, inner) => ` ${seal(render(inner, lang))} `);
+  s = s.replace(/\\\(([\s\S]+?)\\\)/g, (_m, inner) => ` ${seal(render(inner, lang))} `);
   s = s.replace(/\$/g, () => seal(pick(lang, 'dollar', 'Dollar')));
 
   // Arrow context that must beat the default limit reading "goes to"/"gegen": a mapping
@@ -513,8 +603,11 @@ export function mathToSpeech(input: string, lang: SpeechLang): string {
         : m,
   );
 
-  // Unambiguous notation is spoken everywhere (LaTeX commands, Unicode, and the ^/_ scripts
-  // have no prose meaning). ASCII =,-,*,/,: stay untouched here — those wait for a math run.
+  // Unambiguous notation is spoken everywhere (LaTeX commands, Unicode, the ^/_ scripts, and
+  // the bare "sqrt"/"abs" words have no prose meaning). ASCII =,-,*,/,: stay untouched here —
+  // those wait for a math run.
+  s = stripWrappers(s);
+  s = normalizeAsciiFuncs(s);
   s = expandStructural(s, lang);
   s = expandRadicals(s, lang);
   s = normalizeScripts(s, lang);
@@ -522,19 +615,33 @@ export function mathToSpeech(input: string, lang: SpeechLang): string {
   s = applyLatex(s, lang);
   s = applyUnicode(s, lang);
   s = s.replace(/\\([A-Za-z]+)/g, ' $1 ');
+  // Unpaired \( \) \[ \], stray braces, and any surviving backslash never reach the voice.
+  s = s.replace(/\\[()[\]]/g, ' ').replace(/[\\{}]/g, ' ');
 
   // Promote bare ASCII math runs: a maximal charset run that carries a real signal.
   s = promoteRuns(s, lang);
 
-  // Leftover prose numerics: a standalone digit-hyphen-digit is a range, a lone digit/digit
-  // is odds. Both read "to"/"bis"/"zu"; neither is a subtraction or a fraction.
+  // Leftover prose numerics. A standalone digit-hyphen-digit is a range ("pages 3-4").
+  // A lone a/b, though, is a FRACTION in this app — every verdict is about mathematics, so
+  // "19/5" and "pi/6" read "over"/"durch", not as odds. A leading minus straight onto a
+  // digit ("the roots are 2 and -5") is spoken; a spaced dash stays prose punctuation.
   s = s.replace(/(?<![\d.])(\d+)-(\d+)(?![\d.])/g, `$1 ${pick(lang, 'to', 'bis')} $2`);
-  s = s.replace(/(?<![\d.\/])(\d+)\/(\d+)(?![\d.\/])/g, `$1 ${pick(lang, 'to', 'zu')} $2`);
+  s = s.replace(/(?<![\d.\/])(\d+)\/(\d+)(?!\d|\.\d|\/)/g, `$1 ${pick(lang, 'over', 'durch')} $2`);
+  s = s.replace(
+    /(?<![A-Za-z0-9.\/])(pi|[A-Za-z])\/(\d+|[A-Za-z](?![A-Za-z]))(?!\d|\.\d|\/)/g,
+    `$1 ${pick(lang, 'over', 'durch')} $2`,
+  );
+  s = s.replace(/(^|[\s(])-(?=\d)/g, `$1${pick(lang, 'minus', 'minus')} `);
+  s = s.replace(/(\d)\s*%/g, `$1 ${pick(lang, 'percent', 'Prozent')}`);
   // snake_case that never reached a run.
   s = s.replace(/([A-Za-z]{2,})_([A-Za-z0-9]+)/g, '$1 $2');
 
-  // Restore sealed text verbatim, tidy whitespace.
-  s = s.replace(/([-])/g, (_m, c: string) => masks[c.charCodeAt(0) - 0xe100]);
+  // Restore sealed text verbatim. Iterated: a rendered $-span can itself contain a sealed
+  // hyphen-word, and a single pass would leave that nested placeholder (unspeakable
+  // private-use chars, i.e. silently dropped audio) in the speech text.
+  for (let pass = 0; pass < 8 && /\uE000[\uE100-\uEEFF]\uE001/.test(s); pass += 1) {
+    s = s.replace(/\uE000([\uE100-\uEEFF])\uE001/g, (_m, c: string) => masks[c.charCodeAt(0) - 0xe100] ?? ' ');
+  }
   s = s.replace(/[ \t]{2,}/g, ' ').replace(/ +([.,;:!?])/g, '$1').trim();
   // A label colon that ran straight into its content gets a breath ("Step 3:2x" -> "Step 3: 2 x").
   s = s.replace(/([A-Za-z0-9]):(?=[A-Za-z0-9])/g, '$1: ');
@@ -553,6 +660,9 @@ function hasSignal(run: string): boolean {
   if (/[=<>]/.test(run)) return true;
   if (/\*\*/.test(run)) return true;
   if (/[A-Za-z0-9)\]]\s*[+*]\s*[A-Za-z0-9(]/.test(run)) return true;
+  // A parenthesised term with a digit and an operator but no real word is math — "(2x-1)"
+  // left by a stripped \bigl(...\bigr) — while "(see pages 3-4)" stays prose.
+  if (/\((?=[^()]*\d)(?=[^()]*[+\-*/^])(?![^()]*[A-Za-z]{3,})[^()]*\)/.test(run)) return true;
   if (/\|[^|]+\|/.test(run)) return true;
   if (/[A-Za-z]\s*'/.test(run)) return true;
   if (/[A-Za-z0-9]!/.test(run)) return /[=<>]/.test(run); // '!' alone is not a signal
