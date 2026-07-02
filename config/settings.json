@@ -12,7 +12,6 @@
     "chimeError": "error.mp3"
   },
   "api": {
-    "model": "gpt-5.4",
     "maxTokens": 32000,
     "solveModel": "gpt-5.4",
     "verifyModel": "gpt-5.4-mini",

@@ -7,6 +7,8 @@ import UsageView from '@/views/UsageView.vue';
 import PresetsView from '@/views/PresetsView.vue';
 import { theme, toggleTheme } from '@/stores/theme';
 import { lessonStats } from '@/stores/lessons';
+import { rankView } from '@/rank';
+import { skillStore } from '@/stores/skills';
 
 type View = 'pad' | 'lessons' | 'progress' | 'usage' | 'presets';
 const view = ref<View>('pad');
@@ -18,6 +20,13 @@ const tabs: { id: View; label: string }[] = [
   { id: 'presets', label: 'Presets' },
 ];
 const dueCount = computed(() => lessonStats().due);
+// The held rank rides in the nav, always visible — a rank you can see is a rank you
+// defend. Touching skillStore.kcs registers the reactive dependency for live updates.
+const rank = computed(() => {
+  void Object.keys(skillStore.kcs).length;
+  return rankView();
+});
+const hasRank = computed(() => Object.values(skillStore.kcs).some((k) => k.n > 0));
 </script>
 
 <template>
@@ -46,6 +55,15 @@ const dueCount = computed(() => lessonStats().due);
         </button>
       </nav>
       <span class="spacer" />
+      <button
+        v-if="hasRank"
+        class="rankchip"
+        :title="`Rank ${rank.rank.n} — ${rank.rank.anchor}`"
+        @click="view = 'progress'"
+      >
+        <span class="rankchip-n">{{ rank.rank.n }}</span>
+        <span class="rankchip-t">{{ rank.rank.title }}</span>
+      </button>
       <button
         class="theme"
         :title="theme === 'dark' ? 'Switch to light' : 'Switch to dark'"

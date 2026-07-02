@@ -97,13 +97,7 @@ function normalize(text: string): string {
 // sentences. The word-for-word repeat rule is what keeps the audio dedup working now.
 // "unleserlich"/"nicht lesen" are mandated because isReadNudge() keys on them.
 const GERMAN_GRADING =
-  'Write the learner-facing verdict in German (Swiss Hochdeutsch, use "ss" not "ß") as ONE natural spoken sentence, the way a teacher would say it aloud. Never put a label or prefix before it — no "Schritt N:", no phrase ending in a colon — and state the location exactly once, inside the sentence, by naming the expression or spot the learner actually wrote (for example "Bei x hoch drei mal x hoch zwei wurden die Exponenten multipliziert."). When you re-report any still-applicable feedback — an unfixed error, a still-needed rewrite request, or a still-unfinished simplification remark — repeat your earlier sentence word for word. For an illegibility nudge, say you cannot read the spot and ask for a rewrite, naming the nearest readable expression and using the words "unleserlich" or "nicht lesen" (for example "Ich kann den Exponenten im unterstrichenen Ergebnis nicht lesen, bitte neu schreiben."). Keep the control words OK and CORRECT exactly as written; never translate them.';
-const GERMAN_PLAIN = 'Write your reply to the learner in German (Swiss Hochdeutsch, use "ss" not "ß").';
-
-function langLine(mode: Mode): string {
-  if (settings.api.feedbackLang !== 'German') return '';
-  return mode.errorChecking === false ? GERMAN_PLAIN : GERMAN_GRADING;
-}
+  'Write the learner-facing verdict in German (Swiss Hochdeutsch, use "ss" not "ß") as ONE natural spoken sentence, the way a teacher would say it aloud. Never put a label or prefix before it — no "Schritt N:", no phrase ending in a colon — and state the location exactly once, inside the sentence, by naming the expression or spot the learner actually wrote (for example "Bei x hoch drei mal x hoch zwei wurden die Exponenten multipliziert."). When you re-report still-applicable feedback at the SAME hint level — or a still-needed rewrite request or simplification remark — repeat your earlier sentence word for word; a deeper hint level is a new sentence. For an illegibility nudge, say you cannot read the spot and ask for a rewrite, naming the nearest readable expression and using the words "unleserlich" or "nicht lesen" (for example "Ich kann den Exponenten im unterstrichenen Ergebnis nicht lesen, bitte neu schreiben."). Keep the control words OK and CORRECT exactly as written; never translate them.';
 
 /**
  * Sends the current page to Claude and delivers the verdict.
@@ -121,8 +115,7 @@ export function useFeedback() {
   // Distinct verdicts on the current page, oldest first.
   const history: string[] = [];
   // Every distinct verdict already spoken this problem, so a correction is heard once and the
-  // graders re-flagging the same step on later scans (the corner mark stays on the page) never
-  // replays it.
+  // repeat scans of an unchanged page (which re-produce the same verdict) never replay it.
   const spokenKeys = new Set<string>();
   // Session-scoped worked solution for the current problem. The solve model works
   // it out once and this LATCHES, later scans verify against it on the cheap model
@@ -145,33 +138,6 @@ export function useFeedback() {
   let pageReachedCorrect = false;
   let lastSteps = 0;
 
-  function buildContext(mode: Mode): string {
-    const lang = langLine(mode);
-    if (history.length === 0) {
-      const first =
-        'This is the first scan of this page of handwritten work. Assess it per your instructions.';
-      return lang ? `${first}\n\n${lang}` : first;
-    }
-    const list = history.map((h, i) => `${i + 1}. ${h}`).join('\n');
-    const lines = [
-      'Earlier feedback you gave on this same page (oldest first):',
-      list,
-      '',
-      'The image below now shows that same work plus anything newly added beneath it.',
-    ];
-    if (mode.errorChecking === false) {
-      // Summarising / non-grading mode: don't inject error-detector framing.
-      lines.push('Continue per your instructions, staying consistent with what you already said.');
-    } else {
-      lines.push(
-        'Stay consistent with what you already said: do not re-flag a line you previously confirmed as correct, and keep reporting the same first unresolved error until it has been fixed, then move on to the work that follows.',
-        'If everything, including the new work, is valid, respond with exactly: CORRECT',
-      );
-    }
-    if (lang) lines.push('', lang);
-    return lines.join('\n');
-  }
-
   function logUsage(resp: any, mode: Mode, model: string, role: Role): void {
     const u = resp?.usage ?? {};
     recordUsage({
@@ -189,9 +155,7 @@ export function useFeedback() {
     const match = /^data:(image\/[a-z]+);base64,(.*)$/s.exec(imageDataUrl);
     const mediaType = (match?.[1] ?? 'image/jpeg') as ImageMediaType;
     const data = match?.[2] ?? imageDataUrl.replace(/^data:[^,]*,/, '');
-    const verdict = await (mode.cacheSolution
-      ? getFeedbackCached(data, mediaType, mode)
-      : getFeedbackSimple(data, mediaType, mode));
+    const verdict = await getFeedbackCached(data, mediaType, mode);
     maybeCaptureLesson(verdict, mode);
     return verdict;
   }
@@ -200,8 +164,10 @@ export function useFeedback() {
   // learner just had to fix. Skips OK / CORRECT lines.
   // An illegibility prompt ("Can't read step N, rewrite it.") is not a learnable mistake, so it must
   // never seed a lesson; lastError skips it and finds the last REAL flagged error instead.
+  // No bare "rewrite it" branch: a level-4 ladder sentence can legitimately ask the
+  // learner to rewrite a step in their own words, and must not be filtered as a nudge.
   function isReadNudge(text: string): boolean {
-    return /can.?t read|rewrite it|illegible|unleserlich|nicht lesen/i.test(text);
+    return /can.?t read|illegible|unleserlich|nicht lesen/i.test(text);
   }
 
   // A finish nudge ("... can still be simplified") reports unfinished work, not a mistake:
@@ -211,12 +177,21 @@ export function useFeedback() {
     return /can still be simplified|noch vereinfach/i.test(text);
   }
 
+  // The resolving error's ladder rungs sit as a trailing run of consecutive error
+  // entries; the EARLIEST rung of that run (level 1) is the one that names the located
+  // flaw, so it seeds the lesson — a level-4 "look it up in the solutions" sentence
+  // carries no error content.
   function lastError(): string {
+    let first = '';
     for (let i = history.length - 1; i >= 0; i--) {
       const h = history[i];
-      if (!isQuiet(h) && !isCorrect(h) && !isReadNudge(h) && !isFinishNudge(h)) return h;
+      if (isQuiet(h) || isCorrect(h) || isReadNudge(h) || isFinishNudge(h)) {
+        if (first) break; // the trailing error run ended
+        continue; // skip non-errors recorded after the resolve
+      }
+      first = h;
     }
-    return '';
+    return first;
   }
 
   // Lesson capture: the moment a problem turns CORRECT after an error, the error and
@@ -226,7 +201,7 @@ export function useFeedback() {
   // that runs fire-and-forget so the chime is never delayed, and the inputs are snap-
   // shotted now because the session state may move on before it resolves.
   function maybeCaptureLesson(verdict: string, mode: Mode): void {
-    if (lessonCaptured || mode.errorChecking === false) return;
+    if (lessonCaptured) return;
     if (!isCorrect(verdict)) return;
     const mistake = lastError();
     if (!mistake) return;
@@ -300,32 +275,6 @@ export function useFeedback() {
     }
   }
 
-  // Original one-shot path: solve and judge every scan. Used by modes that don't
-  // cache a solution (chemistry, German, freeform).
-  async function getFeedbackSimple(
-    data: string,
-    mediaType: ImageMediaType,
-    mode: Mode,
-  ): Promise<string> {
-    const resp = await getClient().chat.completions.create({
-      model: settings.api.model,
-      max_completion_tokens: settings.api.maxTokens,
-      reasoning_effort: settings.api.verifyEffort,
-      messages: [
-        { role: 'system', content: mode.systemPrompt },
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: buildContext(mode) },
-            { type: 'image_url', image_url: { url: `data:${mediaType};base64,${data}` } },
-          ],
-        },
-      ],
-    } as any);
-    logUsage(resp, mode, settings.api.model, 'verify');
-    return (resp.choices?.[0]?.message?.content ?? '').trim();
-  }
-
   // Per-request context for the solve-once-then-verify path. When a solution is
   // already cached we attach it and ask the model to verify against it (cheap);
   // otherwise we ask it to solve the problem and hand back the worked solution.
@@ -358,7 +307,7 @@ export function useFeedback() {
       // and instructions leaves that prefix intact for OpenAI prompt caching.
       lines.push(
         '',
-        'Feedback you gave EARLIER on this same page (oldest first). The learner may have since fixed some of these, so check each one against the CURRENT work: if a step you flagged now follows correctly, it is FIXED — do NOT report it again and do NOT let it keep you from OK/CORRECT. Only re-report an error that is STILL wrong in what is written now, repeating your earlier sentence VERBATIM from this list.',
+        'Feedback you gave EARLIER on this same page (oldest first); consecutive hints about the same spot are your HINT LADDER position for it. Check each against the CURRENT work: if a step you flagged now follows correctly, it is FIXED — do NOT report it again and do NOT let it keep you from OK/CORRECT. For an error that is STILL wrong, continue per the HINT LADDER: repeat your last hint for it VERBATIM from this list, or go exactly one level deeper if the learner re-attempted the spot and failed, or wrote a question mark near it.',
         history.map((h, i) => `${i + 1}. ${h}`).join('\n'),
       );
     }
@@ -549,12 +498,12 @@ export function useFeedback() {
     const key = normalize(text);
     if (!history.some((h) => normalize(h) === key)) {
       history.push(text);
-      // Keep only the last few verdicts as context, enough for consistency, small enough
-      // to keep re-sent input down on every scan. Evict in safety order — oldest CORRECT
-      // first, then nudges, then the oldest entry — and never the newest entry: unresolved
-      // error sentences are the verbatim source the repeat rule and the audio dedup key
-      // on, and the newest feedback is the one most likely still active.
-      if (history.length > 4) {
+      // Keep only the last few verdicts as context, enough for consistency and a full
+      // 4-level hint ladder, small enough to keep re-sent input down on every scan.
+      // Evict in safety order — oldest CORRECT first, then nudges, then the oldest entry —
+      // and never the newest entry: unresolved error sentences are the ladder position and
+      // the verbatim source the repeat rule and the audio dedup key on.
+      if (history.length > 6) {
         const evictable = history.slice(0, -1);
         let i = evictable.findIndex((h) => isCorrect(h));
         if (i < 0) i = evictable.findIndex((h) => isReadNudge(h) || isFinishNudge(h));
@@ -641,11 +590,10 @@ export function useFeedback() {
    * (prevents the same correction being replayed while you keep writing).
    * Returns true if it actually played.
    */
-  // What a verdict says out loud / on screen. A corner-gated mode "says it is correct"
-  // without marking it: a CORRECT verdict becomes a plain spoken confirmation, never the
-  // literal token. Every other verdict (errors, other modes) is delivered as written.
-  function describe(text: string, mode: Mode): string {
-    if (mode.cornerGated && isCorrect(text)) {
+  // What a verdict says out loud / on screen. A CORRECT verdict becomes a plain spoken
+  // confirmation, never the literal token; every other verdict is delivered as written.
+  function describe(text: string, _mode: Mode): string {
+    if (isCorrect(text)) {
       return settings.api.feedbackLang === 'German' ? 'Das stimmt.' : 'Correct.';
     }
     return text;
@@ -656,8 +604,8 @@ export function useFeedback() {
     const key = deliveryKey(text);
     if (spokenKeys.has(key)) return false; // already said this one this problem
     spokenKeys.add(key);
-    // Corner-gated correct answers are spoken, not chimed ("say it is correct, don't mark it").
-    const markSilently = mode.cornerGated === true && isCorrect(text);
+    // A correct answer is spoken, not chimed ("say it is correct, don't mark it").
+    const markSilently = isCorrect(text);
     if ((mode.feedbackStyle === 'chime' || mode.feedbackStyle === 'both') && !markSilently) {
       playChime(isCorrect(text));
     }

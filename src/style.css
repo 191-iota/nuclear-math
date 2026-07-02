@@ -244,6 +244,36 @@ label {
   text-align: center;
 }
 
+/* The held rank, always visible in the nav; click-through to Progress. */
+.rankchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.28rem 0.6rem 0.28rem 0.32rem;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+}
+
+.rankchip:hover {
+  border-color: var(--gold);
+}
+
+.rankchip-n {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  border: 1.5px solid var(--gold);
+  border-radius: 50%;
+  color: var(--gold);
+  font-size: 0.62rem;
+}
+
 .content {
   flex: 1;
   min-height: 0;

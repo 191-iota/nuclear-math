@@ -11,7 +11,7 @@ import { modelInfo } from '@/models';
  *
  * Console access:  __nlUsage.summary() · __nlUsage.records() · __nlUsage.clear()
  */
-export type Role = 'solve' | 'verify' | 'confirm' | 'lesson';
+export type Role = 'solve' | 'verify' | 'confirm' | 'lesson' | 'drill';
 
 // Human labels for the per-purpose breakdown.
 export const ROLE_LABEL: Record<Role, string> = {
@@ -19,6 +19,7 @@ export const ROLE_LABEL: Record<Role, string> = {
   verify: 'Verify',
   confirm: 'Confirm',
   lesson: 'Lesson cards',
+  drill: 'Drill problems',
 };
 
 export interface UsageRecord {
@@ -122,9 +123,14 @@ export function perPage(): PageStat[] {
       byPage.set(r.page, s);
     }
     const info = modelInfo(recModel(r));
-    s.scans += 1;
-    if (recRole(r) === 'solve') s.solves += 1;
-    else s.verifies += 1;
+    // Lesson cards and drill problems are page-less side calls, not scans of the pad;
+    // their cost still lands on the page's totals but never in the scan buckets.
+    const role = recRole(r);
+    if (role !== 'lesson' && role !== 'drill') {
+      s.scans += 1;
+      if (role === 'solve') s.solves += 1;
+      else s.verifies += 1;
+    }
     s.input += r.input;
     s.output += r.output;
     s.inputCostUSD += (r.input * info.in) / 1e6;
@@ -286,7 +292,7 @@ export function usageSummary() {
     input += r.input;
     output += r.output;
     if (role === 'solve') solves += 1;
-    else verifies += 1;
+    else if (role !== 'lesson' && role !== 'drill') verifies += 1;
     const c = (r.input * info.in + r.output * info.out) / 1e6;
     cost += c;
     if (role === 'lesson') {
@@ -294,7 +300,10 @@ export function usageSummary() {
       lessonCost += c;
     }
   }
-  const scans = usage.records.length;
+  const scans = usage.records.filter((r) => {
+    const role = recRole(r);
+    return role !== 'lesson' && role !== 'drill';
+  }).length;
   const pages = new Set(usage.records.map((r) => r.page)).size || 1;
   return {
     scans,

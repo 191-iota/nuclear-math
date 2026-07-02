@@ -7,11 +7,11 @@ import defaultModes from '@config/modes.json';
  * presets are persisted to localStorage. The Presets view mutates this directly;
  * MainView reads it reactively so prompt / debounce / effort changes apply live.
  */
-// Bumped when the shipped modes change in a way a stale saved copy must not shadow (v6:
-// the convention-aware, procedure-structured math prompt). A bump drops the old localStorage
-// and re-seeds from config/modes.json on next load, so new behaviour actually reaches an
-// existing browser.
-const KEY = 'nl.modes.v6';
+// Bumped when the shipped modes change in a way a stale saved copy must not shadow (v7:
+// math-only — the chemistry/German/freeform subjects left with their flags). A bump drops
+// the old localStorage and re-seeds from config/modes.json on next load, so new behaviour
+// actually reaches an existing browser.
+const KEY = 'nl.modes.v7';
 
 function seed(): Mode[] {
   return structuredClone(defaultModes) as unknown as Mode[];
@@ -44,16 +44,14 @@ watch(
   { deep: true },
 );
 
+// A new preset clones the SHIPPED math grader, so a variant starts from the tuned
+// baseline (conventions, hint rules, self-correction protocol) instead of a bare stub.
 export function addMode(): Mode {
+  const base = seed()[0];
   const preset: Mode = {
+    ...base,
     id: `custom-${Date.now()}`,
-    label: 'New preset',
-    systemPrompt:
-      'You are checking handwritten work, re-scanned as the learner writes. Reply with EXACTLY ONE of: OK while correct so far but unfinished, CORRECT when finished and correct, or a single short sentence naming the first error. Add no other text.',
-    feedbackStyle: 'both',
-    debounceMs: 5000,
-    errorChecking: true,
-    cacheSolution: false,
+    label: 'Math variant',
   };
   modes.value.push(preset);
   return preset;

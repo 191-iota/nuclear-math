@@ -98,7 +98,9 @@ function norm(s: string): string {
 // Illegibility nudges ("Can't read step N, rewrite it.") are not learnable mistakes and must not
 // live in the deck; drop any that slipped in before capture filtered them out.
 function isReadNudge(s: string): boolean {
-  return /can.?t read|rewrite it|illegible|unleserlich|nicht lesen/i.test(s);
+  // Mirrors useFeedback's contract; no bare "rewrite it" branch, which a level-4 hint
+  // can legitimately contain.
+  return /can.?t read|illegible|unleserlich|nicht lesen/i.test(s);
 }
 
 // A card front is "bad" if empty, or a bare expression (the answer copied onto the front with no

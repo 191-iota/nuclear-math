@@ -129,9 +129,7 @@ const STYLES = ['spoken', 'chime', 'both'];
         <summary>
           <span class="summary-label">{{ mode.label }}</span>
           <span class="summary-meta">
-            {{ mode.feedbackStyle }} · {{ (mode.debounceMs / 1000).toFixed(mode.debounceMs % 1000 ? 1 : 0) }}s{{
-              mode.cacheSolution ? ' · cache' : ''
-            }}
+            {{ mode.feedbackStyle }} · {{ (mode.debounceMs / 1000).toFixed(mode.debounceMs % 1000 ? 1 : 0) }}s
           </span>
         </summary>
         <div class="config-body">
@@ -150,17 +148,6 @@ const STYLES = ['spoken', 'chime', 'both'];
               <label>Debounce (ms)</label>
               <input v-model.number="mode.debounceMs" type="number" min="300" step="100" />
             </div>
-          </div>
-
-          <div class="row" style="margin-top: 0.6rem; flex-wrap: wrap; gap: 1rem">
-            <label class="toggle">
-              <input v-model="mode.errorChecking" type="checkbox" />
-              Grade errors
-            </label>
-            <label class="toggle">
-              <input v-model="mode.cacheSolution" type="checkbox" />
-              Cache solution (solve once, then verify)
-            </label>
           </div>
 
           <div class="field" style="margin-top: 0.7rem">

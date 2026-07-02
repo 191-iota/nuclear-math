@@ -5,6 +5,7 @@ import { usePen, type PenDot } from '@/composables/usePen';
 import { useCanvas } from '@/composables/useCanvas';
 import { useFeedback } from '@/composables/useFeedback';
 import { settings } from '@/stores/settings';
+import { recommendPractice } from '@/stores/skills';
 import type { Mode } from '@/types';
 
 const DOT_HOVER = 3;
@@ -37,6 +38,10 @@ const requesting = ref(false);
 // countdown clears the pad for the next problem unless you keep it (or write more).
 const autoClearLeft = ref(0); // seconds remaining; 0 = inactive
 let autoClearTimer: number | undefined;
+// What to practise next, refreshed at the solved moment — the one point where the
+// learner actually decides what to write next, so the estimator's recommendation
+// is worth a line right there instead of only living in the Progress tab.
+const nextDrill = ref('');
 
 function cancelAutoClear() {
   if (autoClearTimer) {
@@ -49,6 +54,8 @@ function cancelAutoClear() {
 function startAutoClear() {
   const secs = settings.scan.autoClearSec ?? 0;
   if (secs <= 0 || autoClearLeft.value > 0) return; // disabled, or already counting
+  const rec = recommendPractice();
+  nextDrill.value = rec.drill ? rec.drill.label : '';
   autoClearLeft.value = secs;
   autoClearTimer = window.setInterval(() => {
     autoClearLeft.value -= 1;
@@ -153,8 +160,8 @@ async function runFeedback() {
     }
     status.value = '';
     // Correct → offer to auto-advance to the next problem; any other verdict (a fresh error
-    // after a correct one) calls off a pending clear. With the corner gate, CORRECT only fires
-    // once every part is answered and double-underlined, so it is a real completion worth clearing.
+    // after a correct one) calls off a pending clear. CORRECT only fires once every visible
+    // part carries a marked final result (FINAL MARK rule), so it is a completion worth clearing.
     if (feedback.isCorrect(text)) startAutoClear();
     else if (!feedback.isQuiet(text)) cancelAutoClear();
   } catch (err: any) {
@@ -256,7 +263,7 @@ const connectionLabel = computed(() => {
       <button :disabled="pen.state.scanning || pen.state.connected" @click="connect">
         {{ pen.state.connected ? 'Connected' : 'Connect pen' }}
       </button>
-      <select v-model="selectedModeId" aria-label="Mode">
+      <select v-if="modes.length > 1" v-model="selectedModeId" aria-label="Grader preset">
         <option v-for="m in modes" :key="m.id" :value="m.id">{{ m.label }}</option>
       </select>
       <button title="Wipe the pad and start a new problem" @click="startFreshPage">Clear</button>
@@ -268,7 +275,10 @@ const connectionLabel = computed(() => {
       <canvas ref="canvasRef" class="pad" />
       <div v-if="autoClearLeft > 0" class="autoclear" role="status">
         <span class="ac-dot" />
-        <span class="ac-msg">Solved. Clearing for the next problem in {{ autoClearLeft }}s</span>
+        <span class="ac-msg">
+          Solved. Clearing for the next problem in {{ autoClearLeft }}s
+          <template v-if="nextDrill"> · next, drill: {{ nextDrill }}</template>
+        </span>
         <button class="ghost" @click="cancelAutoClear">Keep</button>
       </div>
     </main>

@@ -10,6 +10,9 @@ import {
   resetSkills,
   type DomainRollup,
 } from '@/stores/skills';
+import { generateDrill, type DrillProblem } from '@/drill';
+import { rankView } from '@/rank';
+import MathText from '@/components/MathText.vue';
 
 // Sentinel domain key for the aggregated "all touched domains" trajectory.
 const OVERALL = '__all__';
@@ -17,6 +20,7 @@ const OVERALL = '__all__';
 // All reactive off the skill store: reading the selectors inside a computed registers
 // the dependency, so the dashboard recomputes live as problems resolve.
 const summary = computed(() => skillSummary());
+const rank = computed(() => rankView());
 const domains = computed(() => domainRollup());
 const touchedDomains = computed(() => domains.value.filter((d) => d.touched > 0));
 const ranks = computed(() => rankings());
@@ -56,6 +60,22 @@ function reset() {
   }
 }
 
+// On-demand drill problem for the recommended skill: one cheap text call turns the
+// "work on X" recommendation into an actual problem to copy onto paper.
+const drill = ref<DrillProblem | null>(null);
+const drillBusy = ref(false);
+async function makeDrill() {
+  const target = rec.value.drill;
+  if (!target || drillBusy.value) return;
+  drillBusy.value = true;
+  drill.value = null;
+  try {
+    drill.value = await generateDrill(target.id, target.masteryPct);
+  } finally {
+    drillBusy.value = false;
+  }
+}
+
 function pct(n: number | null): string {
   return n === null ? '—' : `${n}%`;
 }
@@ -79,6 +99,37 @@ function domTip(d: DomainRollup): string {
     </div>
 
     <template v-if="summary.coveredKCs > 0">
+      <div class="card rankcard">
+        <div class="rank-row">
+          <div class="rank-badge mono">{{ rank.rank.n }}</div>
+          <div class="rank-title-wrap">
+            <div class="rank-title">{{ rank.rank.title }}</div>
+            <div class="rank-anchor muted">{{ rank.rank.anchor }}</div>
+          </div>
+          <span class="spacer" />
+          <div v-if="rank.next" class="rank-next mono">
+            <div class="muted">next: {{ rank.next.title }}</div>
+            <div class="rank-nexttrack">
+              <span class="fill" :style="{ width: rank.nextProgress + '%' }" />
+            </div>
+            <div v-if="rank.nextStep" class="muted small">{{ rank.nextStep }}</div>
+          </div>
+        </div>
+        <div class="stage-grid">
+          <div v-for="b in rank.bands" :key="b.key" class="stage">
+            <div class="stage-label mono">{{ b.label }}</div>
+            <div class="stage-track">
+              <span class="fill" :style="{ width: b.pct + '%' }" />
+            </div>
+            <div class="stage-meta mono muted">{{ b.secured }}/{{ b.total }} secured</div>
+          </div>
+        </div>
+        <div class="muted small" style="margin-top: 0.5rem">
+          A skill counts as secured at 70% mastery on more than one problem. Secured skills decay
+          when left unpractised, so a rank is held, not owned.
+        </div>
+      </div>
+
       <div v-if="rec.drill || rec.review" class="card rec">
         <div class="rec-head mono">Practice next</div>
         <div v-if="rec.drill" class="rec-line">
@@ -93,6 +144,21 @@ function domTip(d: DomainRollup): string {
         </div>
         <div class="muted small rec-aim">
           Pick problems you would get right about 4 times in 5 — hard enough to stretch, not to stall.
+        </div>
+        <div v-if="rec.drill" class="drill-row">
+          <button class="ghost" :disabled="drillBusy" @click="makeDrill">
+            {{ drillBusy ? 'Writing a problem…' : drill ? 'Another one' : 'Drill me' }}
+          </button>
+          <span v-if="!drill && !drillBusy" class="muted small">
+            generates one problem for {{ rec.drill.label }}, pitched at your level
+          </span>
+        </div>
+        <div v-if="drill" class="drill-problem">
+          <div class="drill-task mono">{{ drill.task }}</div>
+          <MathText :text="drill.problem" class="drill-math" />
+          <div class="muted small" style="margin-top: 0.3rem">
+            Copy it onto the pad — grading picks it up like any problem.
+          </div>
         </div>
       </div>
 
@@ -267,6 +333,80 @@ function domTip(d: DomainRollup): string {
   font-size: 0.72rem;
 }
 
+.rankcard {
+  border-left: 3px solid var(--gold);
+  margin-bottom: 0.7rem;
+}
+
+.rank-row {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.rank-badge {
+  width: 2.6rem;
+  height: 2.6rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--gold);
+  border-radius: 50%;
+  font-size: 1.2rem;
+  color: var(--gold);
+  flex: none;
+}
+
+.rank-title {
+  font-size: 1.15rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+
+.rank-anchor {
+  font-size: 0.74rem;
+}
+
+.rank-next {
+  text-align: right;
+  font-size: 0.68rem;
+  min-width: 11rem;
+}
+
+.rank-nexttrack,
+.stage-track {
+  height: 0.45rem;
+  background: var(--panel-2);
+  border-radius: 3px;
+  overflow: hidden;
+  margin: 0.25rem 0;
+}
+
+.rank-nexttrack .fill,
+.stage-track .fill {
+  display: block;
+  height: 100%;
+  background: var(--gold);
+}
+
+.stage-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
+  gap: 0.7rem;
+  margin-top: 0.8rem;
+}
+
+.stage-label {
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.stage-meta {
+  font-size: 0.66rem;
+}
+
 .rec {
   border-left: 3px solid var(--gold);
 }
@@ -296,6 +436,31 @@ function domTip(d: DomainRollup): string {
 }
 .rec-aim {
   margin-top: 0.45rem;
+}
+
+.drill-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.55rem;
+}
+
+.drill-problem {
+  margin-top: 0.6rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+}
+
+.drill-task {
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-bottom: 0.25rem;
+}
+
+.drill-math {
+  font-size: 1rem;
 }
 
 .rank-grid {
