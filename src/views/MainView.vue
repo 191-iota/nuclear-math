@@ -4,10 +4,13 @@ import { modes } from '@/stores/modes';
 import { usePen, type PenDot } from '@/composables/usePen';
 import { useCanvas } from '@/composables/useCanvas';
 import { useFeedback } from '@/composables/useFeedback';
+import MathText from '@/components/MathText.vue';
 import { settings } from '@/stores/settings';
 import { recommendPractice } from '@/stores/skills';
 import type { Mode } from '@/types';
 
+const DOT_MOVE = 1;
+const DOT_UP = 2;
 const DOT_HOVER = 3;
 
 const selectedModeId = ref(modes.value[0]?.id ?? '');
@@ -76,13 +79,47 @@ let generation = 0; // bumped on clear / mode change to discard stale in-flight 
 let strokesAtLastScan = 0;
 let flushTimer: number | undefined;
 let flushing = false;
+// One automatic re-scan after a failed request, so a transient network blip at the
+// final mark doesn't leave the finished answer silently ungraded until more ink lands.
+let retriedAfterError = false;
+
+// Physical-page identity from the pen's ncode dots. Flipping to a new paper page is a
+// new problem: without this the new page's ink lands ON TOP of the old page's on the
+// canvas and the model is sent the superimposed mess. Confirmed over several ink dots
+// so one glitched pageInfo can never wipe a page the learner is still working on.
+let pageKey: string | null = null;
+let pendingPage: { key: string; count: number } | null = null;
+const PAGE_FLIP_DOTS = 8;
+
+function detectPageFlip(dot: PenDot): void {
+  const pi = (dot as { pageInfo?: { section: number; owner: number; book: number; page: number } })
+    .pageInfo;
+  // Only real ink dots vote: hover streams while the pen floats over a NEIGHBOURING
+  // page, and pen-down sentinels carry placeholder data.
+  if (!pi || (dot.dotType !== DOT_MOVE && dot.dotType !== DOT_UP) || dot.x < 0 || dot.y < 0) return;
+  const key = `${pi.section}/${pi.owner}/${pi.book}/${pi.page}`;
+  if (pageKey === null || key === pageKey) {
+    pageKey = key;
+    pendingPage = null;
+    return;
+  }
+  if (pendingPage?.key === key) pendingPage.count += 1;
+  else pendingPage = { key, count: 1 };
+  if (pendingPage.count >= PAGE_FLIP_DOTS) {
+    pageKey = key;
+    pendingPage = null;
+    startFreshPage(); // the first few dots of the new page are a fraction of one stroke
+  }
+}
 
 function onDot(dot: PenDot) {
+  detectPageFlip(dot);
   canvas.addDot(dot);
   if (dot.dotType === DOT_HOVER) return;
   // Writing again means you want to keep this page, call off any pending clear.
   if (autoClearLeft.value > 0) cancelAutoClear();
   dirty = true;
+  retriedAfterError = false; // new ink is its own retry
   // Active writing resumed, cancel any pending idle flush.
   flushing = false;
   if (flushTimer) {
@@ -138,6 +175,7 @@ async function runFeedback() {
   }
   requesting.value = true;
   dirty = false;
+  const strokesBeforeScan = strokesAtLastScan;
   strokesAtLastScan = canvas.strokeCount();
   const gen = generation;
   status.value = 'Checking…';
@@ -148,6 +186,7 @@ async function runFeedback() {
       status.value = ''; // a reset happened mid-flight, drop this result
       return;
     }
+    retriedAfterError = false;
     if (import.meta.env.DEV) console.debug('[nuclear-learning] verdict:', JSON.stringify(text));
     feedback.recordVerdict(text);
     const played = feedback.deliver(text, activeMode.value);
@@ -166,7 +205,9 @@ async function runFeedback() {
     // Correct → offer to auto-advance to the next problem; any other verdict (a fresh error
     // after a correct one) calls off a pending clear. CORRECT only fires once every visible
     // part carries a marked final result (FINAL MARK rule), so it is a completion worth clearing.
-    if (feedback.isCorrect(text)) startAutoClear();
+    // Never start the countdown when new ink already arrived mid-flight: those strokes are
+    // the next problem (or more work), and the timer would wipe them at zero.
+    if (feedback.isCorrect(text) && !dirty && !pendingAgain) startAutoClear();
     else if (!feedback.isQuiet(text)) cancelAutoClear();
   } catch (err: any) {
     if (gen !== generation) {
@@ -174,6 +215,14 @@ async function runFeedback() {
       return;
     }
     status.value = err?.message ?? 'Error contacting OpenAI.';
+    // Re-arm ONE automatic retry for the ink this scan failed to grade; repeated
+    // failures then wait for new ink rather than polling a dead API forever.
+    if (!retriedAfterError) {
+      retriedAfterError = true;
+      dirty = true;
+      strokesAtLastScan = strokesBeforeScan;
+      scheduleFeedback();
+    }
   } finally {
     requesting.value = false;
     // Drain queued work if any arrived. This must NOT be gated on the finishing
@@ -290,7 +339,10 @@ const connectionLabel = computed(() => {
     <footer class="status">
       <span class="mode">{{ activeMode.label }}</span>
       <span class="sep">·</span>
-      <span class="msg">{{ status || lastFeedback || 'Write on the pad. Feedback appears here.' }}</span>
+      <!-- Verdicts are mandated to be plain speakable prose, but a model that slips in
+           LaTeX anyway should render it, not show raw markup; plain text passes through
+           MathText unchanged. -->
+      <span class="msg"><MathText :text="status || lastFeedback || 'Write on the pad. Feedback appears here.'" /></span>
     </footer>
   </div>
 </template>

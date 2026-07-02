@@ -38,14 +38,53 @@ function load(): Settings {
 
 export const settings = reactive(load());
 
+// v-model.number leaves '' (or a half-typed string) on the reactive object while a field
+// can't parse, and `n < ''` coerces to `n < 0` — an emptied "Re-check after (strokes)"
+// silently disabled the scan gate and fired a full image scan per stroke. Persist a
+// sanitized copy immediately (so a reload never resurrects ''), and repair the live
+// object shortly after typing settles (not per keystroke, which would fight the input).
+function sanitized(): Settings {
+  const copy = JSON.parse(JSON.stringify(settings)) as Settings;
+  for (const k of Object.keys(defaults) as (keyof Settings)[]) {
+    const d = defaults[k] as unknown as Record<string, unknown>;
+    const c = copy[k] as unknown as Record<string, unknown>;
+    if (!d || typeof d !== 'object' || !c) continue;
+    for (const f of Object.keys(d)) {
+      if (typeof d[f] === 'number' && !Number.isFinite(c[f] as number)) c[f] = d[f];
+    }
+  }
+  return copy;
+}
+
+let repairTimer: number | undefined;
+function scheduleRepair(): void {
+  if (typeof window === 'undefined') return;
+  if (repairTimer) window.clearTimeout(repairTimer);
+  repairTimer = window.setTimeout(() => {
+    repairTimer = undefined;
+    const clean = sanitized();
+    for (const k of Object.keys(defaults) as (keyof Settings)[]) {
+      const c = clean[k] as unknown as Record<string, unknown>;
+      const s = settings[k] as unknown as Record<string, unknown>;
+      if (!c || typeof c !== 'object' || !s) continue;
+      for (const f of Object.keys(c)) {
+        if (typeof c[f] === 'number' && s[f] !== c[f] && !Number.isFinite(s[f] as number)) {
+          s[f] = c[f];
+        }
+      }
+    }
+  }, 1500);
+}
+
 watch(
   settings,
   () => {
     try {
-      localStorage.setItem(KEY, JSON.stringify(settings));
+      localStorage.setItem(KEY, JSON.stringify(sanitized()));
     } catch {
       /* storage full / unavailable, non-fatal */
     }
+    scheduleRepair();
   },
   { deep: true },
 );

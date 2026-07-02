@@ -198,17 +198,20 @@ export function usePen(options: UsePenOptions = {}) {
     }
     if (!devices.length) return;
     state.scanning = true;
-    for (const device of devices) {
-      wireAutoReconnect(device);
-      await tryConnect(device);
-    }
-    // Drop the "scanning" indicator if nothing connected within the grace period; an
-    // advertisement watcher (where supported) can still connect later.
+    // Arm the watchdog BEFORE the connect attempts: Chrome's gatt.connect() never times
+    // out on its own while the pen is powered off, so awaiting it first left "Scanning…"
+    // stuck forever with the Connect button dead (it is disabled while scanning).
     clearWatchdog();
     scanWatchdog = window.setTimeout(() => {
       scanWatchdog = undefined;
       if (!state.connected) state.scanning = false;
     }, 6000);
+    for (const device of devices) {
+      wireAutoReconnect(device);
+      await tryConnect(device);
+    }
+    // Connected along the way? The connection message already cleared `scanning`; an
+    // advertisement watcher (where supported) can still connect later.
   }
 
   function disconnect(): void {

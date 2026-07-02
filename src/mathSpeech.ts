@@ -221,9 +221,12 @@ function render(input: string, lang: SpeechLang): string {
   s = expandStructural(s, lang);
   s = expandRadicals(s, lang);
 
-  // 4. absolute value | A | (balanced ASCII pipes) and factorial.
+  // 4. absolute value | A | (balanced ASCII pipes) and factorial. A '!' that ends the
+  // fragment (or sits before only closing punctuation) is sentence punctuation from a
+  // promoted prose run ("Prüfe x = 2!"), never a factorial; and '!=' is inequality,
+  // handled later by the operator pass.
   s = expandPipes(s, lang);
-  s = s.replace(/([0-9A-Za-z)\]}])\s*!/g, (_m, a) => `${a} ${pick(lang, 'factorial', 'Fakultät')}`);
+  s = s.replace(/([0-9A-Za-z)\]}])\s*!(?!\s*$|=|\s*[.,;:?!]*\s*$)/g, (_m, a) => `${a} ${pick(lang, 'factorial', 'Fakultät')}`);
 
   // 5. unicode super/subscripts -> ascii ^ / _ notation (charge case handled inline).
   s = normalizeScripts(s, lang);
@@ -375,8 +378,11 @@ function expandBigOps(s: string, lang: SpeechLang): string {
       : pick(lang, 'the limit', 'der Grenzwert');
     return ` ${head} ${pick(lang, 'of', 'von')} `;
   });
-  // A trailing differential dx / dt / dr reads as two tokens.
-  s = s.replace(/\bd([a-z])\b/g, 'd $1');
+  // A trailing differential dx / dt / dr reads as two tokens — but only in an integral
+  // context: unconditionally, this split garbled prose words that reach a promoted run
+  // ("Wie du siehst" -> "Wie d u siehst"). ∫/∮ are still raw here (their symbol table
+  // runs later), the \int forms were just rewritten to ".. integral .." above.
+  if (/ntegral|∫|∮/i.test(s)) s = s.replace(/\bd([a-z])\b/g, 'd $1');
   return s;
 }
 
@@ -568,6 +574,12 @@ export function mathToSpeech(input: string, lang: SpeechLang): string {
   let s = input
     .replace(/\\\$/g, () => ` ${seal(pick(lang, 'dollar', 'Dollar'))} `)
     .replace(/\\%/g, () => ` ${seal(pick(lang, 'percent', 'Prozent'))} `);
+
+  // Python-style powers FIRST: "2**3 + 4**5" would otherwise match the markdown-bold
+  // strip below ("**3 + 4**" is a bold span to that regex), fusing the digits into the
+  // wrong spoken numbers. TIGHT on both sides — that is how the power is written — so a
+  // bold marker touching a word on one side only ("**wichtig** ist") never matches.
+  s = s.replace(/([A-Za-z0-9)\]}])\*\*(?=[A-Za-z0-9({])/g, '$1^');
 
   // Markdown residue GPT models wrap corrections in; spoken as the plain text inside.
   s = s.replace(/^\s*(?:[-*>•#]+\s+)+/, '').replace(/`+/g, ' ');

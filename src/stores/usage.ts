@@ -1,5 +1,5 @@
 import { reactive } from 'vue';
-import { modelInfo } from '@/models';
+import { modelInfo, type ModelInfo } from '@/models';
 
 /**
  * Reactive token-usage log. Every scan records its API `usage` here; the Usage
@@ -76,6 +76,17 @@ function persist(): void {
 
 export function newPage(): void {
   usage.page += 1;
+  // Persist the bump itself: a reload straight after Clear used to resurrect the old
+  // page number and merge the next problem's records into the previous problem's bar.
+  persist();
+}
+
+// Price a record's input with the cache discount: `input` (prompt_tokens) INCLUDES the
+// cached prefix, which is billed at the cachedIn rate — pricing it all at the full rate
+// overstated every cost figure on the dashboard.
+function inputCostUSD(r: UsageRecord, info: ModelInfo): number {
+  const cached = Math.min(Math.max(r.cacheRead ?? 0, 0), r.input ?? 0);
+  return ((r.input - cached) * info.in + cached * info.cachedIn) / 1e6;
 }
 
 export function recordUsage(entry: Omit<UsageRecord, 'page' | 'ts'>): void {
@@ -133,7 +144,7 @@ export function perPage(): PageStat[] {
     }
     s.input += r.input;
     s.output += r.output;
-    s.inputCostUSD += (r.input * info.in) / 1e6;
+    s.inputCostUSD += inputCostUSD(r, info);
     s.outputCostUSD += (r.output * info.out) / 1e6;
   }
   const stats = [...byPage.values()].sort((a, b) => a.page - b.page);
@@ -215,10 +226,12 @@ export function perDay(maxDays = 30): DayStat[] {
       byDay.set(day, s);
     }
     const info = modelInfo(recModel(r));
-    s.scans += 1;
+    // Same scan semantics as perPage: lesson cards and drills cost money but are not scans.
+    const role = recRole(r);
+    if (role !== 'lesson' && role !== 'drill') s.scans += 1;
     s.input += r.input;
     s.output += r.output;
-    s.inputCostUSD += (r.input * info.in) / 1e6;
+    s.inputCostUSD += inputCostUSD(r, info);
     s.outputCostUSD += (r.output * info.out) / 1e6;
   }
   const out = [...byDay.values()].sort((a, b) => a.day - b.day);
@@ -250,7 +263,7 @@ export function byRole(): RoleStat[] {
     s.count += 1;
     s.input += r.input;
     s.output += r.output;
-    s.costUSD += (r.input * info.in + r.output * info.out) / 1e6;
+    s.costUSD += inputCostUSD(r, info) + (r.output * info.out) / 1e6;
   }
   return [...m.values()].sort((a, b) => b.costUSD - a.costUSD);
 }
@@ -273,7 +286,7 @@ export function byModel(): ModelStat[] {
       m.set(model, s);
     }
     s.count += 1;
-    s.costUSD += (r.input * info.in + r.output * info.out) / 1e6;
+    s.costUSD += inputCostUSD(r, info) + (r.output * info.out) / 1e6;
   }
   return [...m.values()].sort((a, b) => b.costUSD - a.costUSD);
 }
@@ -293,7 +306,7 @@ export function usageSummary() {
     output += r.output;
     if (role === 'solve') solves += 1;
     else if (role !== 'lesson' && role !== 'drill') verifies += 1;
-    const c = (r.input * info.in + r.output * info.out) / 1e6;
+    const c = inputCostUSD(r, info) + (r.output * info.out) / 1e6;
     cost += c;
     if (role === 'lesson') {
       lessonCount += 1;

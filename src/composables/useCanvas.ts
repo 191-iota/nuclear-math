@@ -142,6 +142,11 @@ export function useCanvas(canvasRef: Ref<HTMLCanvasElement | null>) {
     const c = canvasRef.value;
     if (!c) return;
     const rect = c.getBoundingClientRect();
+    // MainView stays mounted but hidden (v-show) while another tab is open, and the
+    // ResizeObserver then reports a 0x0 rect. Sizing the bitmap to that would wipe the
+    // ink AND make any scan fired while hidden export a blank 1x1 image — the pen keeps
+    // streaming on other tabs. Keep the last real size; a real resize follows on re-show.
+    if (rect.width < 1 || rect.height < 1) return;
     const dpr = window.devicePixelRatio || 1;
     c.width = Math.max(1, Math.round(rect.width * dpr));
     c.height = Math.max(1, Math.round(rect.height * dpr));

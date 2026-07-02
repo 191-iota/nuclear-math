@@ -7,7 +7,8 @@ import OpenAI from 'openai';
  * serialized in MainView, but the fire-and-forget lesson card and an on-demand drill
  * could still overlap a scan; owning the client here (no module holds its own) makes
  * overlap structurally impossible rather than per-caller discipline. Each request is
- * bounded by the client timeout, so a stalled call delays the queue by at most that.
+ * bounded by the client timeout per attempt (the client retries once, so a stalled
+ * call delays the queue by at most ~2x the timeout).
  */
 let client: OpenAI | null = null;
 
@@ -45,6 +46,14 @@ export function createCompletion(params: any, opts?: { timeout?: number }): Prom
     () => undefined,
   );
   return result;
+}
+
+// Strip control characters a model's broken JSON string escaping can smuggle past the
+// strict schema: a live gpt-5.4 reply once mis-escaped the · in a problem label as
+// backslash-u0000-b7, landing a literal NUL byte in the parsed string. Newlines and
+// tabs stay — the solution checklist is line-structured.
+export function cleanText(s: unknown): string {
+  return typeof s === 'string' ? s.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '') : '';
 }
 
 // Console probe: __nlApi() shows whether a request is running and how many wait behind

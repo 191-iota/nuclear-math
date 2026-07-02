@@ -8,7 +8,10 @@ import {
   removeLesson,
   clearLessons,
   regenerateCards,
+  rebuildState,
   isBadFront,
+  nowTick,
+  MAX_BOX,
   type Lesson,
 } from '@/stores/lessons';
 import MathText from '@/components/MathText.vue';
@@ -17,16 +20,19 @@ const stats = computed(() => lessonStats());
 const all = computed(() => [...lessonStore.lessons].sort((a, b) => b.ts - a.ts));
 
 // Cards captured before the tailored-card writer existed (or when its call failed)
-// have no `front` or a bad one (answer copied onto the front). Rebuild backfills them on gpt-5.4 mini.
+// have no `front` or a bad one (answer copied onto the front). Rebuild backfills them
+// on gpt-5.4 mini. The in-flight state lives in the store so a tab switch mid-rebuild
+// can't hide (or double-start) a running loop.
 const needsCard = computed(() => lessonStore.lessons.filter(isBadFront).length);
-const rebuilding = ref(false);
-async function rebuild() {
-  if (rebuilding.value) return;
-  rebuilding.value = true;
-  try {
-    await regenerateCards();
-  } finally {
-    rebuilding.value = false;
+const rebuilding = computed(() => rebuildState.running);
+function rebuild() {
+  void regenerateCards();
+}
+
+function clearAll() {
+  const n = lessonStore.lessons.length;
+  if (confirm(`Delete all ${n} lesson${n === 1 ? '' : 's'}? This cannot be undone.`)) {
+    clearLessons();
   }
 }
 
@@ -60,7 +66,7 @@ function exitReview() {
 }
 
 function rel(ms: number): string {
-  const d = Date.now() - ms;
+  const d = nowTick() - ms;
   const m = Math.round(d / 60000);
   if (m < 1) return 'just now';
   if (m < 60) return `${m}m ago`;
@@ -70,7 +76,7 @@ function rel(ms: number): string {
 }
 
 function dueIn(ms: number): string {
-  const d = ms - Date.now();
+  const d = ms - nowTick();
   if (d <= 0) return 'due now';
   const h = Math.round(d / 3_600_000);
   if (h < 24) return `in ${Math.max(1, h)}h`;
@@ -78,7 +84,7 @@ function dueIn(ms: number): string {
 }
 
 function statusLabel(l: Lesson): string {
-  if (l.box >= 4) return 'mastered';
+  if (l.box >= MAX_BOX) return 'mastered';
   if (l.reps === 0) return 'new';
   return dueIn(l.due);
 }
@@ -93,7 +99,7 @@ function statusLabel(l: Lesson): string {
       <button v-if="needsCard" class="ghost" :disabled="rebuilding" @click="rebuild">
         {{ rebuilding ? 'Rebuilding…' : `Rebuild ${needsCard} card${needsCard > 1 ? 's' : ''}` }}
       </button>
-      <button v-if="all.length" class="ghost danger" @click="clearLessons">Clear all</button>
+      <button v-if="all.length" class="ghost danger" :disabled="reviewing" @click="clearAll">Clear all</button>
     </div>
 
     <!-- REVIEW, one card at a time, recall before reveal -->
@@ -139,7 +145,7 @@ function statusLabel(l: Lesson): string {
             </template>
             <template v-else>
               <div class="answer-k mono">the mistake</div>
-              <div class="mistake">{{ current.mistake }}</div>
+              <div class="mistake"><MathText :text="current.mistake" /></div>
             </template>
             <details v-if="current.solution" class="sol">
               <summary>worked solution</summary>
@@ -197,11 +203,11 @@ function statusLabel(l: Lesson): string {
             <div class="lesson-mistake"><MathText :text="l.wrong || l.mistake" /></div>
             <div class="lesson-meta muted mono">
               <span>{{ l.modeLabel }}</span>
-              <template v-if="l.problem"><span class="dot">·</span><span>{{ l.problem }}</span></template>
+              <template v-if="l.problem"><span class="dot">·</span><span><MathText :text="l.problem" /></span></template>
               <span class="dot">·</span><span>{{ rel(l.ts) }}</span>
             </div>
           </div>
-          <span class="badge mono" :class="{ mastered: l.box >= 4, due: l.due <= Date.now() }">
+          <span class="badge mono" :class="{ mastered: l.box >= MAX_BOX, due: l.due <= nowTick() }">
             {{ statusLabel(l) }}
           </span>
           <button class="x" title="Remove" @click="removeLesson(l.id)">×</button>

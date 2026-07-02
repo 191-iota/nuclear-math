@@ -210,7 +210,9 @@ function materialize(id: string): KCState {
 // One uncertainty-driven Elo step for a single knowledge component.
 function eloUpdate(o: KCObservation, sig: KCSignal, od: number, blameScale: number, now: number): void {
   const kc = materialize(o.id);
-  const dDays = kc.lastSeen ? (now - kc.lastSeen) / DAY : 0;
+  // Clamped: a backwards system clock (now < lastSeen) would drive the RD pre-inflation
+  // sqrt negative and poison theta/RD with a persisted NaN.
+  const dDays = kc.lastSeen ? Math.max(0, now - kc.lastSeen) / DAY : 0;
   // Pre-inflate RD for the idle gap so a long-unpracticed skill becomes plastic again.
   kc.RD = Math.min(RD_MAX, Math.sqrt(kc.RD * kc.RD + C_RD * C_RD * dDays));
   // Difficulty anchor: blend the skill's curriculum level with the running average of

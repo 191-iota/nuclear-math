@@ -4,16 +4,18 @@ export interface ModelInfo {
   id: string;
   label: string;
   in: number; // $ per 1M input tokens
+  cachedIn: number; // $ per 1M cached input tokens (the stable prompt prefix re-read)
   out: number; // $ per 1M output tokens
   effort: boolean; // reasoning model: takes the reasoning_effort parameter
 }
 
-// OpenAI GPT-5.4 reasoning models. Prices in $/1M tokens (editable in Presets). All take
-// reasoning_effort, are vision-capable, and support strict json_schema structured output.
+// OpenAI GPT-5.4 reasoning models. Prices in $/1M tokens, pinned here (the Usage tab
+// prices every record from this table). All take reasoning_effort, are vision-capable,
+// and support strict json_schema structured output.
 export const MODELS: ModelInfo[] = [
-  { id: 'gpt-5.4', label: 'GPT-5.4', in: 1.25, out: 10, effort: true },
-  { id: 'gpt-5.4-mini', label: 'GPT-5.4 mini', in: 0.25, out: 2, effort: true },
-  { id: 'gpt-5-nano', label: 'GPT-5 nano', in: 0.05, out: 0.4, effort: true },
+  { id: 'gpt-5.4', label: 'GPT-5.4', in: 1.25, cachedIn: 0.125, out: 10, effort: true },
+  { id: 'gpt-5.4-mini', label: 'GPT-5.4 mini', in: 0.25, cachedIn: 0.025, out: 2, effort: true },
+  { id: 'gpt-5-nano', label: 'GPT-5 nano', in: 0.05, cachedIn: 0.005, out: 0.4, effort: true },
 ];
 
 export const EFFORTS = ['none', 'low', 'medium', 'high', 'xhigh'];

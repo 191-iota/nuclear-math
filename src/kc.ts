@@ -4,7 +4,8 @@ import exemplarDefs from '@config/exemplars.v1.json';
 /**
  * The fixed knowledge-component taxonomy (config/kc.v1.json). This is the closed
  * vocabulary the solve/confirm assessor tags handwritten work against: 125 immutable
- * leaf skills across 11 domains, depth-3 slug `domain.topic.skill`.
+ * leaf skills across 11 domains, slugs mostly depth-3 `domain.topic.skill` (a few
+ * shipped ids deviate; the explicit `domain` field is authoritative, never the prefix).
  *
  * Slugs are PRIMARY KEYS. Only ever ADD leaves; never rename a shipped id, because
  * the per-skill history in localStorage keys on the id. The id enum sent to the

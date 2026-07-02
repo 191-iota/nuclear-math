@@ -151,7 +151,8 @@ function barLabel(s: ProblemBar, i: number): string {
 
       <p class="muted" style="font-size: 0.72rem; margin-top: 0.8rem">
         Each bar is one Clear-to-Clear problem, split into the input it sent and the output it got
-        back, priced from the model rates in Presets so changing a model re-prices history instantly.
+        back, priced from each model's pinned rates (cached prompt reads at the discounted rate), so
+        changing a model re-prices history instantly.
         Once you have done more problems than fit across the chart, neighbouring problems are grouped
         into one bar so it keeps its width and shape however long you use it, and the lifetime totals
         stay in the cards above. A strong model solves and signs off while a cheaper one runs the

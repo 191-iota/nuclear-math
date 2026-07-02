@@ -1,4 +1,4 @@
-import { reactive } from 'vue';
+import { reactive, ref } from 'vue';
 import { generateLessonCard } from '@/lessonCard';
 
 /**
@@ -52,7 +52,20 @@ const DAY = 86_400_000;
 // past the old 21-day ceiling toward an exam horizon so a well-known card can rest for months
 // instead of being pinned at 21 days forever.
 const INTERVALS_MS = [0, DAY, 3 * DAY, 7 * DAY, 21 * DAY, 45 * DAY, 90 * DAY];
-const MAX_BOX = INTERVALS_MS.length - 1;
+export const MAX_BOX = INTERVALS_MS.length - 1;
+
+// A coarse reactive clock (one tick per minute) that due-ness reads through, so a card
+// falling due while the app just sits open actually appears — computeds over the store
+// alone never re-evaluate as time passes.
+const clock = ref(Date.now());
+if (typeof window !== 'undefined') {
+  window.setInterval(() => {
+    clock.value = Date.now();
+  }, 60_000);
+}
+export function nowTick(): number {
+  return clock.value;
+}
 
 interface Persisted {
   lessons: Lesson[];
@@ -216,7 +229,7 @@ export function clearLessons(): void {
 }
 
 /** Lessons due now, soonest-overdue and lowest-box first (weakest items lead). */
-export function dueLessons(now = Date.now()): Lesson[] {
+export function dueLessons(now = nowTick()): Lesson[] {
   return lessonStore.lessons
     .filter((l) => l.due <= now)
     .sort((a, b) => a.box - b.box || a.due - b.due);
@@ -229,30 +242,44 @@ export function dueLessons(now = Date.now()): Lesson[] {
  * sequentially and persists after each so progress is never lost. Returns how many it
  * filled. Exposed as `__nlLessons.rebuild()`.
  */
-export async function regenerateCards(force = false): Promise<number> {
-  const targets = lessonStore.lessons.filter((l) => force || isBadFront(l));
-  let done = 0;
-  for (const l of targets) {
-    const card = await generateLessonCard({
-      problem: l.problem,
-      mistake: l.mistake,
-      solution: l.solution,
-      wrong: l.wrong,
-      right: l.right,
-      mode: l.mode,
-    });
-    if (card && (card.front || card.back)) {
-      l.front = card.front.slice(0, MAX_SOLUTION);
-      l.back = card.back.slice(0, MAX_SOLUTION);
-      done += 1;
-      persist();
+// The in-flight guard lives HERE, not in the view: LessonsView unmounts on tab switch,
+// so a component-local flag forgot a loop that was still running and a second click
+// started a second loop over the same targets (double spend, racing writes).
+let rebuildP: Promise<number> | null = null;
+export const rebuildState = reactive({ running: false });
+
+export function regenerateCards(force = false): Promise<number> {
+  if (rebuildP) return rebuildP;
+  rebuildState.running = true;
+  rebuildP = (async () => {
+    const targets = lessonStore.lessons.filter((l) => force || isBadFront(l));
+    let done = 0;
+    for (const l of targets) {
+      const card = await generateLessonCard({
+        problem: l.problem,
+        mistake: l.mistake,
+        solution: l.solution,
+        wrong: l.wrong,
+        right: l.right,
+        mode: l.mode,
+      });
+      if (card && (card.front || card.back)) {
+        l.front = card.front.slice(0, MAX_SOLUTION);
+        l.back = card.back.slice(0, MAX_SOLUTION);
+        done += 1;
+        persist();
+      }
     }
-  }
-  console.info(`[nuclear-learning] rebuilt ${done}/${targets.length} lesson card(s)`);
-  return done;
+    console.info(`[nuclear-learning] rebuilt ${done}/${targets.length} lesson card(s)`);
+    return done;
+  })().finally(() => {
+    rebuildP = null;
+    rebuildState.running = false;
+  });
+  return rebuildP;
 }
 
-export function lessonStats(now = Date.now()) {
+export function lessonStats(now = nowTick()) {
   let due = 0;
   let mastered = 0;
   for (const l of lessonStore.lessons) {

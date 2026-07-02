@@ -1,4 +1,4 @@
-import { createCompletion } from '@/api';
+import { cleanText, createCompletion } from '@/api';
 import { settings } from '@/stores/settings';
 import { recordUsage } from '@/stores/usage';
 
@@ -72,7 +72,9 @@ export async function generateLessonCard(
       .join('\n');
     const resp = await createCompletion({
       model: CARD_MODEL,
-      max_completion_tokens: 2500,
+      // High-effort reasoning counts against this budget; 2500 silently truncated the
+      // card (finish_reason length -> unparseable -> lesson lost) on hard slips.
+      max_completion_tokens: 8000,
       reasoning_effort: 'high',
       messages: [
         { role: 'system', content: SYSTEM + lang },
@@ -92,8 +94,8 @@ export async function generateLessonCard(
     });
     const out = (resp.choices?.[0]?.message?.content ?? '').trim();
     const p = JSON.parse(out) as { front?: string; back?: string };
-    const front = (p.front ?? '').trim();
-    const back = (p.back ?? '').trim();
+    const front = cleanText(p.front).trim();
+    const back = cleanText(p.back).trim();
     // Reject a bad card so it re-queues for Rebuild rather than persisting: front empty, front is a
     // bare expression (the answer copied onto the front, with no prose), or front equals back.
     const norm = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();

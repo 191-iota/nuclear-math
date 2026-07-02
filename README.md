@@ -14,7 +14,7 @@ A math tutor for paper. You write with a Neo Smartpen, the strokes stream into t
 
 ## How it hints
 
-A bare "this is wrong" is worth almost nothing — the feedback research measures it near zero, because you could just look the answer up. What works is an explanation that stops short of the answer. So the hints climb a ladder, one level per failed fix, the way a human tutor escalates. The first hint locates the step and makes the flaw felt: a slip gets a terse recheck cue, a misapplied rule gets the wrong move named or a pointed question. If you rework the spot and it is still wrong, the next hint names the principle the step violates. Still stuck, and it names the next concrete move along your own route — split into cases, isolate the variable — but never a resulting value. The last rung sends you to the printed solutions for that one step, with instructions to explain it to yourself and rewrite it in your own words. A question mark written next to a flagged spot advances the ladder without waiting for a failed fix.
+A bare "this is wrong" is worth almost nothing — the feedback research measures it near zero, because you could just look the answer up. What works is an explanation that stops short of the answer. So the hints climb a ladder, one level per failed fix, the way a human tutor escalates. The first hint locates the step and hands you the rule to check it against: a slip gets a terse recheck cue, a misapplied rule gets the wrong move named plus the principle it violates — stated in general terms, never applied to your numbers. If you rework the spot and it is still wrong, the next hint names the next concrete move along your own route — split into cases, isolate the variable — but never a resulting value. The last rung sends you to the printed solutions for that one step, with instructions to explain it to yourself and rewrite it in your own words. A question mark written next to a flagged spot advances the ladder without waiting for a failed fix.
 
 At no level does it reveal the corrected expression or the answer. That restraint is load-bearing: in a randomized trial with about a thousand math students, an answer-revealing chatbot made exam scores worse than no help at all, while the same model behind a no-reveal guardrail helped. You fix your own errors here, which is also why the fixes stick.
 
@@ -43,7 +43,7 @@ The same data drives a rating, chess-style. Every problem is a rated game — it
 
 ## Presets
 
-The grader is one system prompt plus a few settings, edited live in the Presets tab or in `config/modes.json`. New presets clone the shipped math grader, so a variant starts from the tuned baseline — the conventions, the hint ladder, the self-correction protocol — instead of a blank slate. `feedbackStyle` is `"spoken"`, `"chime"`, or `"both"`; `debounceMs` is the pause before a check. The engine settings, models, effort, and prices live in `config/settings.json` and the same panel.
+The grader is one system prompt plus a few settings, edited live in the Presets tab or in `config/modes.json`. New presets clone the shipped math grader, so a variant starts from the tuned baseline — the conventions, the hint ladder, the self-correction protocol — instead of a blank slate. `feedbackStyle` is `"spoken"`, `"chime"`, or `"both"`; `debounceMs` is the pause before a check. The engine settings — models, effort, image quality, scan gating — live in `config/settings.json` and the same panel; the per-model prices the Usage tab computes cost from are pinned in `src/models.ts`.
 
 ## Run it
 

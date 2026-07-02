@@ -1,4 +1,4 @@
-import { createCompletion } from '@/api';
+import { cleanText, createCompletion } from '@/api';
 import { recordUsage } from '@/stores/usage';
 import { labelOf, levelOf } from '@/kc';
 
@@ -47,7 +47,9 @@ export async function generateDrill(skillId: string, masteryPct: number): Promis
     const resp = await createCompletion(
       {
         model: DRILL_MODEL,
-        max_completion_tokens: 2000,
+        // Reasoning tokens count against this budget; headroom so a fiddly clean-numbers
+        // search can never truncate the JSON.
+        max_completion_tokens: 4000,
         reasoning_effort: 'medium',
         messages: [
           { role: 'system', content: SYSTEM },
@@ -72,8 +74,8 @@ export async function generateDrill(skillId: string, masteryPct: number): Promis
     });
     const out = (resp.choices?.[0]?.message?.content ?? '').trim();
     const p = JSON.parse(out) as { task?: string; problem?: string };
-    const task = (p.task ?? '').trim();
-    const problem = (p.problem ?? '').trim();
+    const task = cleanText(p.task).trim();
+    const problem = cleanText(p.problem).trim();
     if (!problem) return null;
     return { task, problem, skillLabel: label };
   } catch (err) {

@@ -7,12 +7,13 @@ import defaultModes from '@config/modes.json';
  * presets are persisted to localStorage. The Presets view mutates this directly;
  * MainView reads it reactively so prompt / debounce / effort changes apply live.
  */
-// Bumped when the shipped modes change in a way a stale saved copy must not shadow (v10:
-// the final mark is the done-signal — a fully marked page must decide, never a bare OK;
-// writing "done" is accepted but never required). A bump drops the old localStorage and
-// re-seeds from config/modes.json on next load, so new behaviour actually reaches an
-// existing browser.
-const KEY = 'nl.modes.v10';
+// Bumped when the shipped modes change in a way a stale saved copy must not shadow (v11:
+// the hint ladder compresses to three rungs and the FIRST hint now states the violated
+// rule in general terms — locate the flaw AND hand over the principle, instead of only
+// making the flaw felt; the solution checklist is now $-delimited LaTeX so the review
+// view renders it). A bump drops the old localStorage and re-seeds from
+// config/modes.json on next load, so new behaviour actually reaches an existing browser.
+const KEY = 'nl.modes.v11';
 
 function seed(): Mode[] {
   return structuredClone(defaultModes) as unknown as Mode[];
@@ -24,6 +25,30 @@ function load(): Mode[] {
     if (saved) {
       const parsed = JSON.parse(saved) as Mode[];
       if (Array.isArray(parsed) && parsed.length) return parsed;
+    }
+    // First load under this version. A bump must replace the SHIPPED presets, but the
+    // user's own presets are not ours to delete: carry `custom-*` entries over from the
+    // newest old key, then drop the stale keys so they stop accumulating forever.
+    const old: string[] = [];
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const k = localStorage.key(i);
+      if (k && /^nl\.modes\.v\d+$/.test(k) && k !== KEY) old.push(k);
+    }
+    if (old.length) {
+      old.sort((a, b) => Number(b.slice(10)) - Number(a.slice(10)));
+      const carried: Mode[] = [];
+      try {
+        const prev = JSON.parse(localStorage.getItem(old[0]) ?? '[]') as Mode[];
+        if (Array.isArray(prev)) {
+          for (const m of prev) {
+            if (m && typeof m.id === 'string' && m.id.startsWith('custom-')) carried.push(m);
+          }
+        }
+      } catch {
+        /* unreadable old save: nothing to carry */
+      }
+      for (const k of old) localStorage.removeItem(k);
+      if (carried.length) return [...seed(), ...carried];
     }
   } catch {
     /* fall back to defaults */

@@ -1,4 +1,4 @@
-import { createCompletion } from '@/api';
+import { cleanText, createCompletion } from '@/api';
 import { settings } from '@/stores/settings';
 import { mathToSpeech } from '@/mathSpeech';
 import type { Mode } from '@/types';
@@ -85,10 +85,10 @@ const GERMAN_GRADING =
   'Write the learner-facing verdict in German (Swiss Hochdeutsch, use "ss" not "ß") as ONE natural spoken sentence, the way a teacher would say it aloud. Never put a label or prefix before it — no "Schritt N:", no phrase ending in a colon — and state the location exactly once, inside the sentence, by naming the expression or spot the learner actually wrote (for example "Bei x hoch drei mal x hoch zwei wurden die Exponenten multipliziert."). When you re-report still-applicable feedback at the SAME hint level — or a still-needed rewrite request or simplification remark — repeat your earlier sentence word for word; a deeper hint level is a new sentence. For an illegibility nudge, say you cannot read the spot and ask for a rewrite, naming the nearest readable expression and using the words "unleserlich" or "nicht lesen" (for example "Ich kann den Exponenten im unterstrichenen Ergebnis nicht lesen, bitte neu schreiben."). Keep the control words OK and CORRECT exactly as written; never translate them.';
 
 /**
- * Sends the current page to Claude and delivers the verdict.
+ * Sends the current page to the model and delivers the verdict.
  *
  * Cohesion is held across the many scans of one page by a session memory of the
- * distinct verdicts given so far; each request carries them as context so Claude
+ * distinct verdicts given so far; each request carries them as context so the model
  * stays consistent (never re-flags a confirmed line, keeps reporting the same
  * first unresolved error until it is fixed). Audio is de-duplicated: a verdict is
  * only spoken/chimed when it differs from the last one delivered, so the same
@@ -97,6 +97,12 @@ const GERMAN_GRADING =
  * `resetSession()` starts a fresh page (call it when moving to a new problem).
  */
 export function useFeedback() {
+  // Session epoch. MainView's generation counter already discards a stale scan's
+  // VERDICT, but the scan itself still ran to completion and used to write its
+  // solution/label/membership into whatever session was current by then — Clear
+  // during an in-flight solve meant the NEXT problem got graded against the OLD
+  // problem's cached solution. Every await re-checks this before touching state.
+  let session = 0;
   // Distinct verdicts on the current page, oldest first.
   const history: string[] = [];
   // Every distinct verdict already spoken this problem, so a correction is heard once and the
@@ -140,7 +146,9 @@ export function useFeedback() {
     const match = /^data:(image\/[a-z]+);base64,(.*)$/s.exec(imageDataUrl);
     const mediaType = (match?.[1] ?? 'image/jpeg') as ImageMediaType;
     const data = match?.[2] ?? imageDataUrl.replace(/^data:[^,]*,/, '');
+    const s = session;
     const verdict = await getFeedbackCached(data, mediaType, mode);
+    if (s !== session) return 'OK'; // page was cleared mid-flight; nothing here is current
     maybeCaptureLesson(verdict, mode);
     return verdict;
   }
@@ -149,7 +157,7 @@ export function useFeedback() {
   // learner just had to fix. Skips OK / CORRECT lines.
   // An illegibility prompt ("Can't read step N, rewrite it.") is not a learnable mistake, so it must
   // never seed a lesson; lastError skips it and finds the last REAL flagged error instead.
-  // No bare "rewrite it" branch: a level-4 ladder sentence can legitimately ask the
+  // No bare "rewrite it" branch: a level-3 ladder sentence can legitimately ask the
   // learner to rewrite a step in their own words, and must not be filtered as a nudge.
   function isReadNudge(text: string): boolean {
     return /can.?t read|illegible|unleserlich|nicht lesen/i.test(text);
@@ -164,13 +172,16 @@ export function useFeedback() {
 
   // The resolving error's ladder rungs sit as a trailing run of consecutive error
   // entries; the EARLIEST rung of that run (level 1) is the one that names the located
-  // flaw, so it seeds the lesson — a level-4 "look it up in the solutions" sentence
-  // carries no error content.
+  // flaw and its rule, so it seeds the lesson — a level-3 "look it up in the solutions"
+  // sentence carries no error content. Read/finish nudges are TRANSPARENT while walking
+  // (an illegibility request interleaved between two rungs of the same error must not
+  // truncate the run at the later, thinner rung); only a CORRECT separates problems.
   function lastError(): string {
     let first = '';
     for (let i = history.length - 1; i >= 0; i--) {
       const h = history[i];
-      if (isQuiet(h) || isCorrect(h) || isReadNudge(h) || isFinishNudge(h)) {
+      if (isReadNudge(h) || isFinishNudge(h)) continue; // transparent, never part of a run
+      if (isQuiet(h) || isCorrect(h)) {
         if (first) break; // the trailing error run ended
         continue; // skip non-errors recorded after the resolve
       }
@@ -274,7 +285,7 @@ export function useFeedback() {
         cachedSolution,
         '',
         `The problem label used so far is "${cachedProblem}".`,
-        'Verify the learner\'s work against this solution on every scan using the grading rules in your instructions. Do not re-derive the solution for parts it already covers; if the page now shows a sub-part or problem it does NOT cover, work that part out yourself and return ONLY that part\'s checklist lines in "solution" (never repeat lines the reference above already contains) — otherwise leave "solution" empty. Keep the label above in "problem" while grading work the reference covers; when you solve a NEW sub-part, set "problem" to that new sub-part\'s label instead.',
+        'Verify the learner\'s work against this solution on every scan using the grading rules in your instructions. Do not re-derive the solution for parts it already covers; if the page now shows a sub-part or problem it does NOT cover, work that part out yourself — but only once its statement is completely written: while it is still going in, or you cannot determine it, leave "solution" empty and grade what the reference covers — and return ONLY that part\'s checklist lines in "solution" (never repeat lines the reference above already contains) — otherwise leave "solution" empty. Keep the label above in "problem" while grading work the reference covers; when you solve a NEW sub-part, set "problem" to that new sub-part\'s label instead.',
         'This reference is internal scaffolding and may be more general than the textbook answer: where it carries qualifications the textbook form drops (absolute-value bars, domain notes), the learner\'s textbook-form answer still MATCHES (y for |y|). A dropped SOLUTION of an equation is never such a qualification — x = 3 against a reference x = ±3 is a lost root, a real error — and nothing is droppable on a task explicitly about domains, cases, or absolute value. Before flagging any error, check that it survives the SCHOOL CONVENTIONS.',
         'CORRECTION (stored for the learner\'s later review, never spoken): if your verdict is CORRECT and the earlier feedback below had flagged a mistake the learner has since fixed, fill `correction.wrong` with the specific error they made and `correction.right` with the corrected version, each ONE short line, writing every mathematical expression in LaTeX between single $ delimiters (for example $\\overline{a\\cdot b}=\\bar a+\\bar b$). Naming the right answer here is fine and does not change your verdict. If there was no earlier mistake, leave both empty.',
       );
@@ -360,13 +371,9 @@ export function useFeedback() {
       return { problem: '', solution: '', verdict: 'OK', correction: { wrong: '', right: '' } };
     }
     const correction = {
-      wrong: (parsed?.correction?.wrong ?? '').trim(),
-      right: (parsed?.correction?.right ?? '').trim(),
+      wrong: cleanText(parsed?.correction?.wrong).trim(),
+      right: cleanText(parsed?.correction?.right).trim(),
     };
-    // Latch the latest non-empty correction for the page. The resolving verify/confirm
-    // calls are the ones instructed to fill it, so by the time a problem turns CORRECT
-    // this holds that correction; an empty one never clobbers a real one.
-    if (correction.wrong || correction.right) lastCorrection = correction;
     // Tag read is decoupled and best-effort, so a malformed skills array can never block
     // the verdict / chime.
     let difficulty: number | undefined;
@@ -382,9 +389,9 @@ export function useFeedback() {
       /* tagging is best-effort */
     }
     return {
-      problem: (parsed.problem ?? '').trim(),
-      solution: (parsed.solution ?? '').trim(),
-      verdict: (parsed.verdict ?? '').trim(),
+      problem: cleanText(parsed.problem).trim(),
+      solution: cleanText(parsed.solution).trim(),
+      verdict: cleanText(parsed.verdict).trim(),
       correction,
       difficulty,
       skills,
@@ -404,6 +411,7 @@ export function useFeedback() {
     mode: Mode,
   ): Promise<string> {
     const wantSkills = settings.api.trackSkills;
+    const s = session; // stale-session writes are forbidden past every await below
 
     // No solution yet: gpt-5.4 attempts the solve. It caches only a complete question and leaves the cache
     // empty (a silent OK) while the statement is still going in, so it self-gates.
@@ -418,6 +426,8 @@ export function useFeedback() {
         buildCachedContext(false),
         wantSkills,
       );
+      if (s !== session) return 'OK';
+      if (r.correction.wrong || r.correction.right) lastCorrection = r.correction;
       if (r.solution) cachedSolution = r.solution;
       if (r.problem) cachedProblem = r.problem;
       lastSteps = solutionSteps();
@@ -445,19 +455,31 @@ export function useFeedback() {
       mode,
       buildCachedContext(true),
     );
+    if (s !== session) return 'OK';
+    if (r.correction.wrong || r.correction.right) lastCorrection = r.correction;
     // Bounded and line-deduped: a verify model that (against instructions) re-returns
     // covered lines must not grow or duplicate the per-scan reference. The problem label
-    // only moves when a genuinely new part was latched, so the CORRECT delivery key
-    // stays stable across the repeat scans of one finished problem.
-    if (r.solution && cachedSolution.length < 4000) {
+    // only moves when a genuinely new part appears, so the CORRECT delivery key stays
+    // stable across the repeat scans of one finished problem.
+    if (r.solution) {
       // Line equality, not substring containment: a new "x = 2" must latch even though it
       // occurs inside an older "3x = 21".
       const seen = new Set(cachedSolution.split('\n').map((s) => s.trim()));
       const fresh = r.solution.split('\n').filter((l) => l.trim() && !seen.has(l.trim()));
       if (fresh.length) {
-        cachedSolution += `\n${fresh.join('\n')}`;
-        lastSteps = solutionSteps();
-        if (r.problem) cachedProblem = r.problem;
+        // The size bound caps only the STORED reference; the label (the CORRECT delivery
+        // key) still moves, or a full cache would silently swallow every later
+        // sub-part's spoken confirmation.
+        if (cachedSolution.length < 4000) {
+          cachedSolution += `\n${fresh.join('\n')}`;
+          lastSteps = solutionSteps();
+        }
+        if (r.problem && r.problem !== cachedProblem) {
+          cachedProblem = r.problem;
+          // A genuinely new sub-part starts its own one-lesson budget: without this, a
+          // page holding 1a) and 1b) could only ever capture 1a)'s corrected mistake.
+          lessonCaptured = false;
+        }
       }
     }
     if (!isCorrect(r.verdict)) return r.verdict;
@@ -473,6 +495,8 @@ export function useFeedback() {
       buildCachedContext(true),
       wantSkills,
     );
+    if (s !== session) return 'OK';
+    if (c.correction.wrong || c.correction.right) lastCorrection = c.correction;
     if (isCorrect(c.verdict)) captureSkills(c);
     return c.verdict;
   }
@@ -484,7 +508,7 @@ export function useFeedback() {
     if (!history.some((h) => normalize(h) === key)) {
       history.push(text);
       // Keep only the last few verdicts as context, enough for consistency and a full
-      // 4-level hint ladder, small enough to keep re-sent input down on every scan.
+      // 3-level hint ladder, small enough to keep re-sent input down on every scan.
       // Evict in safety order — oldest CORRECT first, then nudges, then the oldest entry —
       // and never the newest entry: unresolved error sentences are the ladder position and
       // the verbatim source the repeat rule and the audio dedup key on.
@@ -498,7 +522,9 @@ export function useFeedback() {
   }
 
   function isCorrect(text: string): boolean {
-    return /^\s*correct\b/i.test(text);
+    // The whole verdict must BE the token: a prefix match turned an imperative English
+    // hint ("Correct the sign in ...") into a false CORRECT with chime and auto-clear.
+    return /^\s*correct[.!]?\s*$/i.test(text);
   }
 
   // "OK" = correct so far / nothing to report yet. Produces no audio and is not
@@ -516,6 +542,8 @@ export function useFeedback() {
     return normalize(text);
   }
 
+  let speakTimer: number | undefined;
+
   function speak(text: string): void {
     if (typeof window === 'undefined' || !('speechSynthesis' in window) || !text) return;
     // Speak the math as words, not the raw notation. Without this the engine reads "$x^2$"
@@ -527,8 +555,15 @@ export function useFeedback() {
     const utterance = new SpeechSynthesisUtterance(spoken);
     utterance.lang = lang === 'de' ? 'de-DE' : settings.audio.voiceLang;
     utterance.rate = settings.audio.rate;
+    if (speakTimer) window.clearTimeout(speakTimer);
     window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(utterance);
+    // Chrome intermittently swallows an utterance queued synchronously after cancel();
+    // a tick of separation makes delivery reliable. resetSession clears the timer so a
+    // pending sentence can never speak onto the next page.
+    speakTimer = window.setTimeout(() => {
+      speakTimer = undefined;
+      window.speechSynthesis.speak(utterance);
+    }, 60);
   }
 
   function synthTone(correct: boolean): void {
@@ -602,6 +637,7 @@ export function useFeedback() {
 
   /** Start a fresh page: forget prior verdicts and stop any in-flight speech. */
   function resetSession(): void {
+    session += 1; // in-flight scans of the old page may no longer write anything back
     // Abandon hook (runs before state is cleared): if a page never resolved CORRECT but
     // kept showing an error, deposit a 'wrong' on the solve-time membership's core skills
     // so the estimator sees losses, not only wins. Reuses the solve-time membership, so
@@ -631,6 +667,10 @@ export function useFeedback() {
     pageReachedCorrect = false;
     lastSteps = 0;
     newPage();
+    if (speakTimer) {
+      window.clearTimeout(speakTimer);
+      speakTimer = undefined;
+    }
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
     }
