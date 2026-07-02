@@ -1,4 +1,4 @@
-import OpenAI from 'openai';
+import { createCompletion } from '@/api';
 import { settings } from '@/stores/settings';
 import { mathToSpeech } from '@/mathSpeech';
 import type { Mode } from '@/types';
@@ -66,21 +66,6 @@ const SKILL_SOLUTION_SCHEMA = {
     },
   },
 };
-
-let client: OpenAI | null = null;
-
-function getClient(): OpenAI {
-  if (!client) {
-    const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
-    if (!apiKey) {
-      throw new Error('Missing VITE_OPENAI_API_KEY. Copy .env.example to .env and add your key.');
-    }
-    // Bound each request so a stalled call can't freeze the feedback loop.
-    // Reasoning models legitimately take 30-90s at medium/high effort, so the timeout is generous.
-    client = new OpenAI({ apiKey, dangerouslyAllowBrowser: true, timeout: 90000, maxRetries: 1 });
-  }
-  return client;
-}
 
 let audioCtx: AudioContext | null = null;
 const missingChimes = new Set<string>();
@@ -360,7 +345,7 @@ export function useFeedback() {
     };
     if (useEffort) params.reasoning_effort = effort;
 
-    const resp = await getClient().chat.completions.create(params);
+    const resp = await createCompletion(params);
     logUsage(resp, mode, model, role);
     const out = (resp.choices?.[0]?.message?.content ?? '').trim();
     let parsed: any;

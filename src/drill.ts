@@ -1,4 +1,4 @@
-import OpenAI from 'openai';
+import { createCompletion } from '@/api';
 import { recordUsage } from '@/stores/usage';
 import { labelOf, levelOf } from '@/kc';
 
@@ -30,16 +30,6 @@ Return JSON {task, problem}:
 
 Difficulty: aim for a problem the learner solves correctly about 4 times in 5 — one notch above comfortable. Below 40% mastery, write a clean single-concept problem of the skill; 40-70%, a routine problem with one twist (a sign, a fraction, a parameter); above 70%, combine the skill with one natural neighbour skill or add a step. Numbers must work out cleanly by hand (no calculator artifacts), the problem must be self-contained, and it must genuinely exercise the named skill — not merely mention it. Never include the solution, hints, or an answer blank.`;
 
-let client: OpenAI | null = null;
-function getClient(): OpenAI {
-  if (!client) {
-    const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
-    if (!apiKey) throw new Error('Missing VITE_OPENAI_API_KEY.');
-    client = new OpenAI({ apiKey, dangerouslyAllowBrowser: true, timeout: 60000, maxRetries: 1 });
-  }
-  return client;
-}
-
 export interface DrillProblem {
   task: string;
   problem: string;
@@ -54,19 +44,22 @@ export async function generateDrill(skillId: string, masteryPct: number): Promis
       `Learner mastery of this skill right now: ${masteryPct}%.`,
       'Write the problem.',
     ].join('\n');
-    const resp = await getClient().chat.completions.create({
-      model: DRILL_MODEL,
-      max_completion_tokens: 2000,
-      reasoning_effort: 'medium',
-      messages: [
-        { role: 'system', content: SYSTEM },
-        { role: 'user', content: user },
-      ],
-      response_format: {
-        type: 'json_schema',
-        json_schema: { name: 'drill', strict: true, schema: DRILL_SCHEMA },
+    const resp = await createCompletion(
+      {
+        model: DRILL_MODEL,
+        max_completion_tokens: 2000,
+        reasoning_effort: 'medium',
+        messages: [
+          { role: 'system', content: SYSTEM },
+          { role: 'user', content: user },
+        ],
+        response_format: {
+          type: 'json_schema',
+          json_schema: { name: 'drill', strict: true, schema: DRILL_SCHEMA },
+        },
       },
-    } as any);
+      { timeout: 60000 },
+    );
     const u = (resp as any)?.usage ?? {};
     recordUsage({
       mode: 'drill',

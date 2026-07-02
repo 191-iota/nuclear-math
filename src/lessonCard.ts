@@ -1,4 +1,4 @@
-import OpenAI from 'openai';
+import { createCompletion } from '@/api';
 import { settings } from '@/stores/settings';
 import { recordUsage } from '@/stores/usage';
 
@@ -44,16 +44,6 @@ GOOD (shape, not language): front "Simplify $\\frac{1}{x-y}-\\frac{1}{y-x}$ — 
 GOOD: front "Write the pure-repeating decimal $0.\\overline{145}$ as a fraction."  back "$\\frac{145}{999}$ — three nines, because the period is three digits."
 FORBIDDEN front "$\\frac{(2w-v)a}{-2(v-w)-k}$" — that is the ANSWER, not a prompt. Rewrite as e.g. "Solve for $a$: after expanding $-2(v-w)$, what is the denominator?"`;
 
-let client: OpenAI | null = null;
-function getClient(): OpenAI {
-  if (!client) {
-    const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
-    if (!apiKey) throw new Error('Missing VITE_OPENAI_API_KEY.');
-    client = new OpenAI({ apiKey, dangerouslyAllowBrowser: true, timeout: 90000, maxRetries: 1 });
-  }
-  return client;
-}
-
 export interface LessonCardInput {
   problem: string;
   mistake: string;
@@ -80,7 +70,7 @@ export async function generateLessonCard(
     ]
       .filter(Boolean)
       .join('\n');
-    const resp = await getClient().chat.completions.create({
+    const resp = await createCompletion({
       model: CARD_MODEL,
       max_completion_tokens: 2500,
       reasoning_effort: 'high',
@@ -89,7 +79,7 @@ export async function generateLessonCard(
         { role: 'user', content: user },
       ],
       response_format: { type: 'json_schema', json_schema: { name: 'flashcard', strict: true, schema: CARD_SCHEMA } },
-    } as any);
+    });
     const u = (resp as any)?.usage ?? {};
     recordUsage({
       mode: input.mode ?? 'lesson-card',
