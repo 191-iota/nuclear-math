@@ -87,7 +87,7 @@ function normalize(text: string): string {
 // sentences. The word-for-word repeat rule is what keeps the audio dedup working now.
 // "unleserlich"/"nicht lesen" are mandated because isReadNudge() keys on them.
 const GERMAN_GRADING =
-  'Write the learner-facing verdict in German (Swiss Hochdeutsch, use "ss" not "ß") as ONE natural spoken sentence, the way a teacher would say it aloud. Never put a label or prefix before it — no "Schritt N:", no phrase ending in a colon — and state the location exactly once, inside the sentence, by naming the expression or spot the learner actually wrote (for example "Bei x hoch drei mal x hoch zwei wurden die Exponenten multipliziert."). When you re-report still-applicable feedback at the SAME hint level — or a still-needed rewrite request or simplification remark — repeat your earlier sentence word for word; a deeper hint level is a new sentence. For an illegibility nudge, say you cannot read the spot and ask for a rewrite, naming the nearest readable expression and using the words "unleserlich" or "nicht lesen" (for example "Ich kann den Exponenten im unterstrichenen Ergebnis nicht lesen, bitte neu schreiben."). Keep the control words OK and CORRECT exactly as written; never translate them.';
+  'Write the learner-facing verdict in German (Swiss Hochdeutsch, use "ss" not "ß") as ONE natural spoken sentence, the way a teacher would say it aloud. Never put a label or prefix before it — no "Schritt N:", no phrase ending in a colon — and state the location exactly once, inside the sentence, by naming the expression or spot the learner actually wrote (for example "Bei x hoch drei mal x hoch zwei wurden die Exponenten multipliziert — bei gleicher Basis werden die Exponenten addiert."). When you re-report still-applicable feedback at the SAME hint level — or a still-needed rewrite request or simplification remark — repeat your earlier sentence word for word; a deeper hint level is a new sentence. For an illegibility nudge, say you cannot read the spot and ask for a rewrite, naming the nearest readable expression and using the words "unleserlich" or "nicht lesen" (for example "Ich kann den Exponenten im unterstrichenen Ergebnis nicht lesen, bitte neu schreiben."). Keep the control words OK and CORRECT exactly as written; never translate them.';
 
 /**
  * Sends the current page to the model and delivers the verdict.
@@ -180,8 +180,8 @@ export function useFeedback() {
 
   // The resolving error's ladder rungs sit as a trailing run of consecutive error
   // entries; the EARLIEST rung of that run (level 1) is the one that names the located
-  // flaw and its rule, so it seeds the lesson — a level-3 "look it up in the solutions"
-  // sentence carries no error content. Read/finish nudges are TRANSPARENT while walking
+  // flaw and its violated constraint, so it seeds the lesson — a level-3 "look it up in
+  // the solutions" sentence carries the least. Read/finish nudges are TRANSPARENT while walking
   // (an illegibility request interleaved between two rungs of the same error must not
   // truncate the run at the later, thinner rung); only a CORRECT separates problems.
   function lastError(): string {

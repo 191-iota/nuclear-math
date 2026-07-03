@@ -7,13 +7,14 @@ import defaultModes from '@config/modes.json';
  * presets are persisted to localStorage. The Presets view mutates this directly;
  * MainView reads it reactively so prompt / debounce / effort changes apply live.
  */
-// Bumped when the shipped modes change in a way a stale saved copy must not shadow (v12:
-// the reply gains a "final" boolean — the FINAL MARK state, decided on every scan — so
-// the app can hold a fresh correction while the page is still mid-work, giving the
-// learner a grace window to catch the slip themselves, without slowing the verdict on a
-// final-marked page). A bump drops the old localStorage and re-seeds from
+// Bumped when the shipped modes change in a way a stale saved copy must not shadow (v13:
+// every hint rung now names the VIOLATED CONSTRAINT — the learner reasons from
+// constraints, and a located flaw without its broken rule reads as noise; slips carry
+// the law governing the botched operation instead of a bare recheck cue, and the deeper
+// rungs restate the constraint alongside the move / the solutions-lookup). A bump drops
+// the old localStorage and re-seeds from
 // config/modes.json on next load, so new behaviour actually reaches an existing browser.
-const KEY = 'nl.modes.v12';
+const KEY = 'nl.modes.v13';
 
 function seed(): Mode[] {
   return structuredClone(defaultModes) as unknown as Mode[];
