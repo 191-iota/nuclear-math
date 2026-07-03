@@ -388,8 +388,6 @@ onMounted(() => {
   } else {
     window.addEventListener('resize', canvas.resize);
   }
-  // Silently reconnect to an already-paired pen (no chooser); no-op on first visit.
-  void pen.autoConnect();
 });
 
 onBeforeUnmount(() => {
