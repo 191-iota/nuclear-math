@@ -39,7 +39,7 @@ const hasRank = computed(() => Object.values(skillStore.kcs).some((k) => k.n > 0
           <path d="M17.58 56.00A28 28 0 0 1 4.00 32.49L22.00 32.17A10 10 0 0 0 26.85 40.57Z" fill="currentColor" />
           <circle cx="32" cy="32" r="4.6" fill="var(--gold)" />
         </svg>
-        nuclear<span class="brand-dim">·learning</span>
+        nuclear<span class="brand-dim">·math</span>
       </span>
       <nav class="tabs">
         <button

@@ -270,7 +270,7 @@ export function regenerateCards(force = false): Promise<number> {
         persist();
       }
     }
-    console.info(`[nuclear-learning] rebuilt ${done}/${targets.length} lesson card(s)`);
+    console.info(`[nuclear-math] rebuilt ${done}/${targets.length} lesson card(s)`);
     return done;
   })().finally(() => {
     rebuildP = null;

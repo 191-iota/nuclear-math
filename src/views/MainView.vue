@@ -271,14 +271,22 @@ async function runFeedback() {
   status.value = 'Checking…';
   try {
     const img = canvas.exportImage();
-    const { verdict: text, final, ungraded } = await feedback.getFeedback(img, activeMode.value);
+    // A scan whose trigger was under the stroke gate arrived via the idle flush: a few
+    // strokes then stillness, the shape of a final mark. The model gets told, so it
+    // checks beneath the results before staying quiet.
+    const smallBatch = newStrokes < settings.scan.minNewStrokes;
+    const { verdict: text, final, ungraded } = await feedback.getFeedback(
+      img,
+      activeMode.value,
+      smallBatch,
+    );
     if (gen !== generation) {
       status.value = ''; // a reset happened mid-flight, drop this result
       return;
     }
     retriedAfterError = false;
     if (import.meta.env.DEV) {
-      console.debug('[nuclear-learning] verdict:', JSON.stringify(text), final ? '(final page)' : '');
+      console.debug('[nuclear-math] verdict:', JSON.stringify(text), final ? '(final page)' : '');
     }
     feedback.recordVerdict(text);
     deliverVerdict(text, final, ungraded === true);

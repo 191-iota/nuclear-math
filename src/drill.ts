@@ -79,7 +79,7 @@ export async function generateDrill(skillId: string, masteryPct: number): Promis
     if (!problem) return null;
     return { task, problem, skillLabel: label };
   } catch (err) {
-    console.warn('[nuclear-learning] drill generation failed:', err);
+    console.warn('[nuclear-math] drill generation failed:', err);
     return null;
   }
 }

@@ -150,12 +150,13 @@ export function useFeedback() {
   async function getFeedback(
     imageDataUrl: string,
     mode: Mode,
+    smallBatch = false,
   ): Promise<{ verdict: string; final: boolean; ungraded?: boolean }> {
     const match = /^data:(image\/[a-z]+);base64,(.*)$/s.exec(imageDataUrl);
     const mediaType = (match?.[1] ?? 'image/jpeg') as ImageMediaType;
     const data = match?.[2] ?? imageDataUrl.replace(/^data:[^,]*,/, '');
     const s = session;
-    const r = await getFeedbackCached(data, mediaType, mode);
+    const r = await getFeedbackCached(data, mediaType, mode, smallBatch);
     if (s !== session) return { verdict: 'OK', final: false }; // page was cleared mid-flight; nothing here is current
     maybeCaptureLesson(r.verdict, mode);
     return r;
@@ -285,7 +286,7 @@ export function useFeedback() {
   // Triage, voice, and the school-convention rules live ONLY in the mode systemPrompt
   // (shared by solve, verify, and confirm); these branches carry just what is unique
   // to the call, so nothing here can drift against the stable rules.
-  function buildCachedContext(hasCache: boolean): string {
+  function buildCachedContext(hasCache: boolean, smallBatch = false): string {
     const lines: string[] = [];
     if (hasCache) {
       lines.push(
@@ -325,6 +326,15 @@ export function useFeedback() {
         '',
         'Feedback you gave EARLIER on this same page (oldest first); consecutive hints about the same spot are your HINT LADDER position for it. Check each against the CURRENT work: if a step you flagged now follows correctly, it is FIXED — do NOT report it again and do NOT let it keep you from OK/CORRECT. For an error that is STILL wrong, continue per the HINT LADDER: repeat your last hint for it VERBATIM from this list, or go exactly one level deeper if the learner re-attempted the spot and failed, or wrote a question mark near it. An entry tagged [unheard] was WITHHELD from the learner (the app held the audio while they were still writing): it is your note, not a delivered hint, and the tag is metadata, never part of the sentence. Never go a level deeper on the strength of an [unheard] hint — while the learner has heard nothing for an error, repeat the [unheard] sentence word for word, even after a failed re-attempt at the spot.',
         history.map((h, i) => `${i + 1}. ${h}${isCorrect(h) || spokenKeys.has(deliveryKey(h)) ? '' : ' [unheard]'}`).join('\n'),
+      );
+    }
+    // A flush scan (a few strokes, then stillness) is the signature of a final mark —
+    // the double underline is 2-3 thin strokes and kept going unseen, training the
+    // learner to write "done". Point the model's eyes at it on exactly these scans.
+    if (smallBatch) {
+      lines.push(
+        '',
+        'The newest ink on this scan is a SMALL batch — a few strokes followed by stillness, the shape of a final mark or a tiny fix. Before judging anything else, check whether it is a final mark beneath a result (or the fix to a flagged spot); if the page is now fully marked, decide per FINAL MARK — never a bare OK.',
       );
     }
     return lines.join('\n');
@@ -390,7 +400,7 @@ export function useFeedback() {
       // grace hold must not read it as "the slip got fixed" and rescind a held correction.
       // finish_reason 'length' means max_completion_tokens was too small for the reasoning + output.
       console.warn(
-        `[nuclear-learning] ${role} reply unusable (finish_reason=${resp.choices?.[0]?.finish_reason}, ${out.length} chars); staying silent. If 'length', raise Max tokens.`,
+        `[nuclear-math] ${role} reply unusable (finish_reason=${resp.choices?.[0]?.finish_reason}, ${out.length} chars); staying silent. If 'length', raise Max tokens.`,
       );
       return {
         problem: '',
@@ -444,6 +454,7 @@ export function useFeedback() {
     data: string,
     mediaType: ImageMediaType,
     mode: Mode,
+    smallBatch = false,
   ): Promise<{ verdict: string; final: boolean; ungraded?: boolean }> {
     const wantSkills = settings.api.trackSkills;
     const s = session; // stale-session writes are forbidden past every await below
@@ -458,7 +469,7 @@ export function useFeedback() {
         data,
         mediaType,
         mode,
-        buildCachedContext(false),
+        buildCachedContext(false, smallBatch),
         wantSkills,
       );
       if (s !== session) return { verdict: 'OK', final: false };
@@ -470,7 +481,7 @@ export function useFeedback() {
       if (isCorrect(r.verdict)) captureSkills(r);
       if (import.meta.env.DEV) {
         console.debug(
-          `[nuclear-learning] solve: cached=${cachedSolution !== ''} (solution ${r.solution.length} chars), problem=${JSON.stringify(r.problem)}, verdict=${JSON.stringify(r.verdict)}`,
+          `[nuclear-math] solve: cached=${cachedSolution !== ''} (solution ${r.solution.length} chars), problem=${JSON.stringify(r.problem)}, verdict=${JSON.stringify(r.verdict)}`,
         );
       }
       return { verdict: r.verdict, final: r.final, ungraded: r.ungraded };
@@ -488,7 +499,7 @@ export function useFeedback() {
       data,
       mediaType,
       mode,
-      buildCachedContext(true),
+      buildCachedContext(true, smallBatch),
     );
     if (s !== session) return { verdict: 'OK', final: false };
     if (r.correction.wrong || r.correction.right) lastCorrection = r.correction;
@@ -517,9 +528,18 @@ export function useFeedback() {
         }
       }
     }
-    if (!isCorrect(r.verdict)) return { verdict: r.verdict, final: r.final, ungraded: r.ungraded };
+    // A verify that reports the FINAL MARK state but answers a bare OK is breaking its
+    // contract (a fully marked page must get a decision) — usually the model doubting
+    // its own reading. The learner is waiting at a marked result, so silence here is
+    // the write-"done" habit all over again: escalate to the strong confirm for a real
+    // verdict instead of returning the quiet.
+    const finalButUndecided = r.final && isQuiet(r.verdict) && !r.ungraded;
+    if (!isCorrect(r.verdict) && !finalButUndecided) {
+      return { verdict: r.verdict, final: r.final, ungraded: r.ungraded };
+    }
 
-    // The verify judged the answer finished and right: gpt-5.4 confirms at medium effort before we say so.
+    // The verify judged the answer finished (CORRECT, or final-marked with no verdict):
+    // gpt-5.4 confirms at medium effort before we say so.
     const c = await callModel(
       settings.api.confirmModel,
       'medium',

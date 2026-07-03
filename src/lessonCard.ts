@@ -104,7 +104,7 @@ export async function generateLessonCard(
     if ((!front && !back) || bareExpr || (!!front && norm(front) === norm(back))) return null;
     return { front, back };
   } catch (err) {
-    console.warn('[nuclear-learning] lesson card generation failed:', err);
+    console.warn('[nuclear-math] lesson card generation failed:', err);
     return null;
   }
 }
