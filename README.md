@@ -6,7 +6,7 @@
 
 ![Vue 3](https://img.shields.io/badge/Vue-3-1a1915?style=flat-square) ![TypeScript](https://img.shields.io/badge/TypeScript-strict-1a1915?style=flat-square) ![GPT-5.4 vision](https://img.shields.io/badge/GPT--5.4-vision-c39a27?style=flat-square) ![Web Bluetooth](https://img.shields.io/badge/Web%20Bluetooth-Chrome%20%2F%20Edge-1a1915?style=flat-square)
 
-A math tutor for paper. You write with a Neo Smartpen, the strokes stream into the browser over Bluetooth, and a vision model grades the page as it grows. It stays quiet while your work is correct, speaks one sentence the moment you settle a wrong step — locating it by what you actually wrote, in English or Swiss German — and tells you when everything on the page is finished and right.
+A math tutor for paper. You write with a Neo Smartpen, the strokes stream into the browser over Bluetooth, and a vision model grades the page as it grows. It stays quiet while your work is correct, gives you a moment to catch a slip yourself before it speaks the one sentence that locates it — by what you actually wrote, in English or Swiss German — and tells you when everything on the page is finished and right.
 
 <p align="center">
   <img src="docs/app.png" alt="the app: a problem on the pad with the app's hint in the status bar" width="880">
@@ -18,13 +18,15 @@ A bare "this is wrong" is worth almost nothing — the feedback research measure
 
 At no level does it reveal the corrected expression or the answer. That restraint is load-bearing: in a randomized trial with about a thousand math students, an answer-revealing chatbot made exam scores worse than no help at all, while the same model behind a no-reveal guardrail helped. You fix your own errors here, which is also why the fixes stick.
 
+It does not pounce either. A freshly settled mistake is seen but not spoken: the sentence is held until it survives your next stretch of writing, or until the pen has sat idle for about twenty seconds — long enough that you are stuck rather than thinking. Catch the slip in that window, strike it through, and you never hear about it, which is the better outcome anyway: an error you find yourself teaches more than one read to you. Only a final-marked page skips the wait — the mark says you are done and waiting, so the verdict comes at once. The window is the correction grace in the engine settings; zero restores the old pounce.
+
 Your own conventions are respected. A line struck through or marked "falsch" with an arrow to a redo is finished business, never re-flagged — and rewriting a solution from scratch supersedes the flagged attempt, so the newest one is what gets judged. An intermediate result is left alone while you are still simplifying it. A double underline marks a result final (a box or a circle counts too), and a fully marked page always gets a verdict, never silence.
 
 ## How it works
 
 The pen streams (x, y, pressure) points over Web Bluetooth onto a canvas. When you pause, the page is cropped to just the ink and sent to the OpenAI API as a vision message. There is no OCR step; the model reads the ink directly.
 
-The moment the whole question is written, GPT-5.4 solves it once at medium effort and keeps that answer as a checklist. From then on GPT-5.4 mini verifies every scan against the checklist, staying quiet while a line is mid-working and speaking once you settle a wrong step. GPT-5.4 signs off a finished, correct answer before the app says so. The strong model runs twice per problem, once to solve and once to confirm, and the cheap one carries the repetitive middle. Grading follows school convention rather than pedantry — a simplification task assumes its expressions are defined, so it will not demand absolute-value bars the textbook answer omits, but it will never wave through a lost solution of an equation. Everything is spoken as words rather than symbols, so a hint comes through as "x squared" or "the square root of two".
+The moment the whole question is written, GPT-5.4 solves it once at medium effort and keeps that answer as a checklist. From then on GPT-5.4 mini verifies every scan against the checklist, staying quiet while a line is mid-working and speaking once a wrong step has settled and outlived the correction grace. GPT-5.4 signs off a finished, correct answer before the app says so. The strong model runs twice per problem, once to solve and once to confirm, and the cheap one carries the repetitive middle. Grading follows school convention rather than pedantry — a simplification task assumes its expressions are defined, so it will not demand absolute-value bars the textbook answer omits, but it will never wave through a lost solution of an equation. Everything is spoken as words rather than symbols, so a hint comes through as "x squared" or "the square root of two".
 
 ## What it remembers
 

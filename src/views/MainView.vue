@@ -82,6 +82,15 @@ let flushing = false;
 // One automatic re-scan after a failed request, so a transient network blip at the
 // final mark doesn't leave the finished answer silently ungraded until more ink lands.
 let retriedAfterError = false;
+// Correction grace: the FIRST sighting of a new correction on a page still mid-work is
+// held silently — on screen but not spoken — so a slip the learner is about to catch
+// themselves is never read to them. It is delivered once it survives the next scan
+// (they wrote on and it still stands) or once the pen has sat idle for
+// correctionGraceMs (they are stuck, and now the hint helps instead of interrupting).
+// CORRECT, anything on a final-marked page, and grace 0 skip the hold entirely.
+let heldVerdict: string | null = null;
+let holdTimer: number | undefined;
+let lastInkAt = 0;
 
 // Physical-page identity from the pen's ncode dots. Flipping to a new paper page is a
 // new problem: without this the new page's ink lands ON TOP of the old page's on the
@@ -120,6 +129,13 @@ function onDot(dot: PenDot) {
   if (autoClearLeft.value > 0) cancelAutoClear();
   dirty = true;
   retriedAfterError = false; // new ink is its own retry
+  lastInkAt = Date.now();
+  // New ink makes a held correction stale (the page changed under it): stop its timer,
+  // but keep the sentence as the second-sighting key so the next scan can decide.
+  if (holdTimer) {
+    window.clearTimeout(holdTimer);
+    holdTimer = undefined;
+  }
   // Active writing resumed, cancel any pending idle flush.
   flushing = false;
   if (flushTimer) {
@@ -152,6 +168,80 @@ function scheduleFlush() {
   }, residual);
 }
 
+function clearHold() {
+  if (holdTimer) {
+    window.clearTimeout(holdTimer);
+    holdTimer = undefined;
+  }
+  heldVerdict = null;
+}
+
+// Matches useFeedback's audio-dedup identity, so "same sentence" means the same thing
+// on both sides of the hold.
+function sameVerdict(a: string, b: string): boolean {
+  const norm = (t: string) => t.trim().replace(/\s+/g, ' ').toLowerCase();
+  return norm(a) === norm(b);
+}
+
+// Arm (or re-arm) the grace timer for the current hold. The grace runs from the last
+// stroke, and the debounce plus the request already consumed part of it, so only the
+// residual is waited. Every scan CONCLUSION that leaves a hold pending with no newer
+// ink must land here (or replace/resolve the hold), or the held correction has no
+// liveness: a timer-less hold is only ever delivered by the next scan.
+function armHoldTimer(): void {
+  if (heldVerdict === null) return;
+  if (holdTimer) window.clearTimeout(holdTimer);
+  holdTimer = window.setTimeout(() => {
+    holdTimer = undefined;
+    // A fresher page state is already on its way to a verdict; defer to its conclusion.
+    if (dirty || requesting.value) return;
+    const held = heldVerdict;
+    heldVerdict = null;
+    if (held) feedback.deliver(held, activeMode.value);
+  }, Math.max(1000, settings.scan.correctionGraceMs - (Date.now() - lastInkAt)));
+}
+
+// Delivery policy in front of feedback.deliver. A graded OK resolves any held
+// correction — the learner fixed the slip before ever hearing about it, which is the
+// outcome the hold exists for. An UNGRADED OK (unusable model reply) says nothing
+// about the page, so it must not rescind the hold as if the slip were fixed; and since
+// it ends the scan chain without a throw (no automatic retry), the hold gets its grace
+// timer back — silence-until-new-ink would strand a stuck learner.
+function deliverVerdict(text: string, final: boolean, ungraded: boolean): void {
+  if (feedback.isQuiet(text)) {
+    if (!ungraded) clearHold();
+    else if (!dirty) armHoldTimer();
+    return;
+  }
+  const graceMs = settings.scan.correctionGraceMs;
+  if (feedback.isCorrect(text) || final || graceMs <= 0 || feedback.alreadyDelivered(text)) {
+    clearHold();
+    feedback.deliver(text, activeMode.value);
+    return;
+  }
+  if (heldVerdict !== null && sameVerdict(heldVerdict, text)) {
+    // Second sighting: the error survived a whole further write-and-pause cycle
+    // without the learner catching it, so a teacher would interject now.
+    clearHold();
+    feedback.deliver(text, activeMode.value);
+    return;
+  }
+  // First sighting of a new correction mid-work: hold it.
+  heldVerdict = text;
+  if (holdTimer) {
+    window.clearTimeout(holdTimer);
+    holdTimer = undefined;
+  }
+  // Ink that landed while this scan was in flight postdates the image this verdict was
+  // computed from — the ink could not cancel a timer that did not exist yet, and it may
+  // BE the fix for this very sentence. The queued rescan is the authority: hold without
+  // a timer and let its verdict decide (a graded OK clears, a repeat is the second
+  // sighting). Arming here would race the rescan and could speak a correction for a
+  // slip already struck through.
+  if (dirty) return;
+  armHoldTimer();
+}
+
 async function runFeedback() {
   if (!canvas.hasContent() || !dirty) return;
   if (requesting.value) {
@@ -181,15 +271,17 @@ async function runFeedback() {
   status.value = 'Checking…';
   try {
     const img = canvas.exportImage();
-    const text = await feedback.getFeedback(img, activeMode.value);
+    const { verdict: text, final, ungraded } = await feedback.getFeedback(img, activeMode.value);
     if (gen !== generation) {
       status.value = ''; // a reset happened mid-flight, drop this result
       return;
     }
     retriedAfterError = false;
-    if (import.meta.env.DEV) console.debug('[nuclear-learning] verdict:', JSON.stringify(text));
+    if (import.meta.env.DEV) {
+      console.debug('[nuclear-learning] verdict:', JSON.stringify(text), final ? '(final page)' : '');
+    }
     feedback.recordVerdict(text);
-    const played = feedback.deliver(text, activeMode.value);
+    deliverVerdict(text, final, ungraded === true);
     if (feedback.isQuiet(text)) {
       // Distinguish "no solution cached yet" (the solve isn't producing one) from a real "looks
       // fine so far" — otherwise both read identically and a failing solve looks like a pass.
@@ -197,8 +289,9 @@ async function runFeedback() {
         ? 'Looks good so far…'
         : 'Working out the solution…';
     } else {
-      // Always reflect the CURRENT scan's verdict on screen (audio still de-dupes via `played`), so a
-      // resolved or changed error never lingers as stale text carried over from an earlier scan.
+      // Always reflect the CURRENT scan's verdict on screen — a glance is opt-in, so even a
+      // held correction shows here while the audio waits out its grace — and never let a
+      // resolved or changed error linger as stale text carried over from an earlier scan.
       lastFeedback.value = feedback.describe(text, activeMode.value);
     }
     status.value = '';
@@ -222,6 +315,10 @@ async function runFeedback() {
       dirty = true;
       strokesAtLastScan = strokesBeforeScan;
       scheduleFeedback();
+    } else if (!dirty) {
+      // The retry is spent and nothing further is queued: a timer-less hold would sit
+      // silent forever while the learner waits stuck. Give it its grace timer back.
+      armHoldTimer();
     }
   } finally {
     requesting.value = false;
@@ -255,6 +352,7 @@ function resetGating() {
 
 function startFreshPage() {
   cancelAutoClear();
+  clearHold(); // a correction held for the old page must never speak onto the new one
   generation += 1; // invalidate any in-flight scan
   if (debounceTimer) window.clearTimeout(debounceTimer);
   dirty = false;
@@ -269,6 +367,7 @@ function startFreshPage() {
 // Switching mode is also a fresh start for feedback context (keep the drawing).
 watch(selectedModeId, () => {
   cancelAutoClear();
+  clearHold();
   generation += 1;
   resetGating(); // re-evaluate the existing drawing under the new mode
   feedback.resetSession();
@@ -298,6 +397,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', canvas.resize);
   if (debounceTimer) window.clearTimeout(debounceTimer);
   if (flushTimer) window.clearTimeout(flushTimer);
+  if (holdTimer) window.clearTimeout(holdTimer);
   cancelAutoClear();
 });
 

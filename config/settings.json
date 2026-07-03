@@ -29,6 +29,7 @@
   "scan": {
     "minNewStrokes": 8,
     "idleFlushMs": 6000,
+    "correctionGraceMs": 20000,
     "autoClearSec": 5
   }
 }

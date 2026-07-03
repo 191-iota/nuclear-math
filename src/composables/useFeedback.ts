@@ -13,7 +13,11 @@ type ImageMediaType = 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif';
 
 // Structured reply for solution-caching modes: a learner-facing one-line `verdict`
 // plus the worked `solution` (internal, cached) and a `problem` label so the cache
-// knows which problem it belongs to. `correction` is filled only when a problem
+// knows which problem it belongs to. `final` reports the FINAL MARK state — every
+// sub-part visible on the page carries its marked final result — on every scan, so
+// the app knows whether the learner has declared the page done (a verdict on a
+// final page is spoken at once; mid-work, a fresh correction is held for the grace
+// window first). `correction` is filled only when a problem
 // turns CORRECT after a flagged mistake: a clean, LaTeX-formatted statement of what
 // was wrong and the right version, stored on the lesson for later review (never
 // spoken). It is required by the schema but left empty ("") when not applicable,
@@ -21,11 +25,12 @@ type ImageMediaType = 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif';
 const SOLUTION_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['problem', 'solution', 'verdict', 'correction'],
+  required: ['problem', 'solution', 'verdict', 'final', 'correction'],
   properties: {
     problem: { type: 'string' },
     solution: { type: 'string' },
     verdict: { type: 'string' },
+    final: { type: 'boolean' },
     correction: {
       type: 'object',
       additionalProperties: false,
@@ -47,7 +52,7 @@ const SOLUTION_SCHEMA = {
 const SKILL_SOLUTION_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['problem', 'solution', 'verdict', 'correction', 'difficulty', 'skills'],
+  required: ['problem', 'solution', 'verdict', 'final', 'correction', 'difficulty', 'skills'],
   properties: {
     ...SOLUTION_SCHEMA.properties,
     difficulty: { type: 'integer', enum: [1, 2, 3, 4, 5, 6, 7] },
@@ -142,15 +147,18 @@ export function useFeedback() {
     });
   }
 
-  async function getFeedback(imageDataUrl: string, mode: Mode): Promise<string> {
+  async function getFeedback(
+    imageDataUrl: string,
+    mode: Mode,
+  ): Promise<{ verdict: string; final: boolean; ungraded?: boolean }> {
     const match = /^data:(image\/[a-z]+);base64,(.*)$/s.exec(imageDataUrl);
     const mediaType = (match?.[1] ?? 'image/jpeg') as ImageMediaType;
     const data = match?.[2] ?? imageDataUrl.replace(/^data:[^,]*,/, '');
     const s = session;
-    const verdict = await getFeedbackCached(data, mediaType, mode);
-    if (s !== session) return 'OK'; // page was cleared mid-flight; nothing here is current
-    maybeCaptureLesson(verdict, mode);
-    return verdict;
+    const r = await getFeedbackCached(data, mediaType, mode);
+    if (s !== session) return { verdict: 'OK', final: false }; // page was cleared mid-flight; nothing here is current
+    maybeCaptureLesson(r.verdict, mode);
+    return r;
   }
 
   // The most recent flagged error still in session memory, the mistake the
@@ -296,15 +304,27 @@ export function useFeedback() {
         'Then grade the current work against the solution you just derived, per your instructions.',
       );
     }
+    // The "final" contract rides in every request, so a user-edited preset whose system
+    // prompt predates the field (or dropped it) still fills it deliberately instead of
+    // guessing at a name the strict schema forces it to emit.
+    lines.push(
+      '',
+      'In "final", report true exactly when every sub-part visible on the page carries its own marked final result, else false — decided fresh on every scan, whatever the verdict. It is how the app knows the learner has declared the page done.',
+    );
     // The constant language line sits above the history so the growing part stays last.
     if (settings.api.feedbackLang === 'German') lines.push('', GERMAN_GRADING);
     if (history.length > 0) {
       // History goes LAST: it grows every scan, so keeping it after the stable per-problem solution
       // and instructions leaves that prefix intact for OpenAI prompt caching.
+      // Entries the audio hold kept from the learner are tagged [unheard] (spoken-ness is
+      // read live from spokenKeys, so a held sentence that later plays loses the tag):
+      // without this, an unprompted self-correction attempt that fails would read as
+      // "re-attempted after my hint" and the ladder would escalate past rungs the
+      // learner never heard — the first audio for an error could be the terminal rung.
       lines.push(
         '',
-        'Feedback you gave EARLIER on this same page (oldest first); consecutive hints about the same spot are your HINT LADDER position for it. Check each against the CURRENT work: if a step you flagged now follows correctly, it is FIXED — do NOT report it again and do NOT let it keep you from OK/CORRECT. For an error that is STILL wrong, continue per the HINT LADDER: repeat your last hint for it VERBATIM from this list, or go exactly one level deeper if the learner re-attempted the spot and failed, or wrote a question mark near it.',
-        history.map((h, i) => `${i + 1}. ${h}`).join('\n'),
+        'Feedback you gave EARLIER on this same page (oldest first); consecutive hints about the same spot are your HINT LADDER position for it. Check each against the CURRENT work: if a step you flagged now follows correctly, it is FIXED — do NOT report it again and do NOT let it keep you from OK/CORRECT. For an error that is STILL wrong, continue per the HINT LADDER: repeat your last hint for it VERBATIM from this list, or go exactly one level deeper if the learner re-attempted the spot and failed, or wrote a question mark near it. An entry tagged [unheard] was WITHHELD from the learner (the app held the audio while they were still writing): it is your note, not a delivered hint, and the tag is metadata, never part of the sentence. Never go a level deeper on the strength of an [unheard] hint — while the learner has heard nothing for an error, repeat the [unheard] sentence word for word, even after a failed re-attempt at the spot.',
+        history.map((h, i) => `${i + 1}. ${h}${isCorrect(h) || spokenKeys.has(deliveryKey(h)) ? '' : ' [unheard]'}`).join('\n'),
       );
     }
     return lines.join('\n');
@@ -328,9 +348,11 @@ export function useFeedback() {
     problem: string;
     solution: string;
     verdict: string;
+    final: boolean;
     correction: { wrong: string; right: string };
     difficulty?: number;
     skills?: KCObservation[];
+    ungraded?: boolean;
   }> {
     const info = modelInfo(model);
     const useEffort = info.effort && !!effort;
@@ -364,11 +386,20 @@ export function useFeedback() {
       parsed = JSON.parse(out);
     } catch {
       // A non-JSON / refused / truncated reply carries no verdict, so treat it as OK (stay silent).
+      // `ungraded` marks it as such: this OK says nothing about the page, so the caller's
+      // grace hold must not read it as "the slip got fixed" and rescind a held correction.
       // finish_reason 'length' means max_completion_tokens was too small for the reasoning + output.
       console.warn(
         `[nuclear-learning] ${role} reply unusable (finish_reason=${resp.choices?.[0]?.finish_reason}, ${out.length} chars); staying silent. If 'length', raise Max tokens.`,
       );
-      return { problem: '', solution: '', verdict: 'OK', correction: { wrong: '', right: '' } };
+      return {
+        problem: '',
+        solution: '',
+        verdict: 'OK',
+        final: false,
+        correction: { wrong: '', right: '' },
+        ungraded: true,
+      };
     }
     const correction = {
       wrong: cleanText(parsed?.correction?.wrong).trim(),
@@ -391,7 +422,11 @@ export function useFeedback() {
     return {
       problem: cleanText(parsed.problem).trim(),
       solution: cleanText(parsed.solution).trim(),
-      verdict: cleanText(parsed.verdict).trim(),
+      // The [unheard] history tag is metadata the model is told never to echo; strip a
+      // trailing one defensively anyway, or it would defeat the verbatim-repeat match
+      // (and the audio dedup) and end up spoken aloud.
+      verdict: cleanText(parsed.verdict).trim().replace(/\s*\[unheard\]$/i, ''),
+      final: parsed.final === true,
       correction,
       difficulty,
       skills,
@@ -409,7 +444,7 @@ export function useFeedback() {
     data: string,
     mediaType: ImageMediaType,
     mode: Mode,
-  ): Promise<string> {
+  ): Promise<{ verdict: string; final: boolean; ungraded?: boolean }> {
     const wantSkills = settings.api.trackSkills;
     const s = session; // stale-session writes are forbidden past every await below
 
@@ -426,7 +461,7 @@ export function useFeedback() {
         buildCachedContext(false),
         wantSkills,
       );
-      if (s !== session) return 'OK';
+      if (s !== session) return { verdict: 'OK', final: false };
       if (r.correction.wrong || r.correction.right) lastCorrection = r.correction;
       if (r.solution) cachedSolution = r.solution;
       if (r.problem) cachedProblem = r.problem;
@@ -438,7 +473,7 @@ export function useFeedback() {
           `[nuclear-learning] solve: cached=${cachedSolution !== ''} (solution ${r.solution.length} chars), problem=${JSON.stringify(r.problem)}, verdict=${JSON.stringify(r.verdict)}`,
         );
       }
-      return r.verdict;
+      return { verdict: r.verdict, final: r.final, ungraded: r.ungraded };
     }
 
     // VERIFY every scan on the cheap model against the cache, correcting continuously. It stays
@@ -455,7 +490,7 @@ export function useFeedback() {
       mode,
       buildCachedContext(true),
     );
-    if (s !== session) return 'OK';
+    if (s !== session) return { verdict: 'OK', final: false };
     if (r.correction.wrong || r.correction.right) lastCorrection = r.correction;
     // Bounded and line-deduped: a verify model that (against instructions) re-returns
     // covered lines must not grow or duplicate the per-scan reference. The problem label
@@ -482,7 +517,7 @@ export function useFeedback() {
         }
       }
     }
-    if (!isCorrect(r.verdict)) return r.verdict;
+    if (!isCorrect(r.verdict)) return { verdict: r.verdict, final: r.final, ungraded: r.ungraded };
 
     // The verify judged the answer finished and right: gpt-5.4 confirms at medium effort before we say so.
     const c = await callModel(
@@ -495,10 +530,10 @@ export function useFeedback() {
       buildCachedContext(true),
       wantSkills,
     );
-    if (s !== session) return 'OK';
+    if (s !== session) return { verdict: 'OK', final: false };
     if (c.correction.wrong || c.correction.right) lastCorrection = c.correction;
     if (isCorrect(c.verdict)) captureSkills(c);
-    return c.verdict;
+    return { verdict: c.verdict, final: c.final, ungraded: c.ungraded };
   }
 
   /** Commit a verdict to the page's session memory (kept distinct). */
@@ -619,6 +654,13 @@ export function useFeedback() {
     return text;
   }
 
+  // Whether this verdict has already been spoken this problem — deliver() would stay
+  // silent on it. Lets the caller's grace hold wave a repeat straight through instead
+  // of holding a sentence that will never play anyway.
+  function alreadyDelivered(text: string): boolean {
+    return spokenKeys.has(deliveryKey(text));
+  }
+
   function deliver(text: string, mode: Mode): boolean {
     if (!text || isQuiet(text)) return false;
     const key = deliveryKey(text);
@@ -697,6 +739,7 @@ export function useFeedback() {
     getFeedback,
     recordVerdict,
     deliver,
+    alreadyDelivered,
     describe,
     resetSession,
     speak,

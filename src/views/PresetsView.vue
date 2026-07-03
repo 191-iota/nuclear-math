@@ -99,6 +99,15 @@ const STYLES = ['spoken', 'chime', 'both'];
               <label>Auto-clear (s, 0 = off)</label>
               <input v-model.number="settings.scan.autoClearSec" type="number" min="0" step="1" />
             </div>
+            <div class="field span-2">
+              <label>Correction grace (ms, 0 = off)</label>
+              <input
+                v-model.number="settings.scan.correctionGraceMs"
+                type="number"
+                min="0"
+                step="1000"
+              />
+            </div>
           </div>
 
           <div class="row" style="margin-top: 0.8rem; flex-wrap: wrap; gap: 0.6rem 1rem">
