@@ -17,7 +17,11 @@ type ImageMediaType = 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif';
 // sub-part visible on the page carries its marked final result — on every scan, so
 // the app knows whether the learner has declared the page done (a verdict on a
 // final page is spoken at once; mid-work, a fresh correction is held for the grace
-// window first). `correction` is filled only when a problem
+// window first). `display` is the verdict's screen twin — the same sentence with its
+// mathematics as $-LaTeX. The spoken form fed both the ear and the footer, and a sum
+// decomposition read as "Summe von k gleich 1 bis n plus 1 von 2k minus 1 ..." is
+// unreadable as text; MathText renders the twin, TTS keeps the words.
+// `correction` is filled only when a problem
 // turns CORRECT after a flagged mistake: a clean, LaTeX-formatted statement of what
 // was wrong and the right version, stored on the lesson for later review (never
 // spoken). It is required by the schema but left empty ("") when not applicable,
@@ -25,11 +29,12 @@ type ImageMediaType = 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif';
 const SOLUTION_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['problem', 'solution', 'verdict', 'final', 'correction'],
+  required: ['problem', 'solution', 'verdict', 'display', 'final', 'correction'],
   properties: {
     problem: { type: 'string' },
     solution: { type: 'string' },
     verdict: { type: 'string' },
+    display: { type: 'string' },
     final: { type: 'boolean' },
     correction: {
       type: 'object',
@@ -52,7 +57,7 @@ const SOLUTION_SCHEMA = {
 const SKILL_SOLUTION_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['problem', 'solution', 'verdict', 'final', 'correction', 'difficulty', 'skills'],
+  required: ['problem', 'solution', 'verdict', 'display', 'final', 'correction', 'difficulty', 'skills'],
   properties: {
     ...SOLUTION_SCHEMA.properties,
     difficulty: { type: 'integer', enum: [1, 2, 3, 4, 5, 6, 7] },
@@ -87,7 +92,7 @@ function normalize(text: string): string {
 // sentences. The word-for-word repeat rule is what keeps the audio dedup working now.
 // "unleserlich"/"nicht lesen" are mandated because isReadNudge() keys on them.
 const GERMAN_GRADING =
-  'Write the learner-facing verdict in German (Swiss Hochdeutsch, use "ss" not "ß") as ONE natural spoken sentence, the way a teacher would say it aloud. Never put a label or prefix before it — no "Schritt N:", no phrase ending in a colon — and state the location exactly once, inside the sentence, by naming the expression or spot the learner actually wrote (for example "Bei x hoch drei mal x hoch zwei wurden die Exponenten multipliziert — bei gleicher Basis werden die Exponenten addiert."). When you re-report still-applicable feedback at the SAME hint level — or a still-needed rewrite request or simplification remark — repeat your earlier sentence word for word; a deeper hint level is a new sentence. For an illegibility nudge, say you cannot read the spot and ask for a rewrite, naming the nearest readable expression and using the words "unleserlich" or "nicht lesen" (for example "Ich kann den Exponenten im unterstrichenen Ergebnis nicht lesen, bitte neu schreiben."). Keep the control words OK and CORRECT exactly as written; never translate them.';
+  'Write the learner-facing verdict in German (Swiss Hochdeutsch, use "ss" not "ß") as ONE natural spoken sentence, the way a teacher would say it aloud. Never put a label or prefix before it — no "Schritt N:", no phrase ending in a colon — and state the location exactly once, inside the sentence, by the SHORTEST pointer that finds it — the operation or spot ("bei der Zerlegung der Summe") or a short fragment of the ink, never a recited long expression (for example "Bei x hoch drei mal x hoch zwei wurden die Exponenten multipliziert — bei gleicher Basis werden die Exponenten addiert."). When you re-report still-applicable feedback at the SAME hint level — or a still-needed rewrite request or simplification remark — repeat your earlier sentence word for word; a deeper hint level is a new sentence. For an illegibility nudge, say you cannot read the spot and ask for a rewrite, naming the nearest readable expression and using the words "unleserlich" or "nicht lesen" (for example "Ich kann den Exponenten im unterstrichenen Ergebnis nicht lesen, bitte neu schreiben."). Keep the control words OK and CORRECT exactly as written; never translate them. Write "display" in German too: the same sentence, its mathematics as compact $-LaTeX.';
 
 /**
  * Sends the current page to the model and delivers the verdict.
@@ -151,13 +156,13 @@ export function useFeedback() {
     imageDataUrl: string,
     mode: Mode,
     smallBatch = false,
-  ): Promise<{ verdict: string; final: boolean; ungraded?: boolean }> {
+  ): Promise<{ verdict: string; final: boolean; ungraded?: boolean; display: string }> {
     const match = /^data:(image\/[a-z]+);base64,(.*)$/s.exec(imageDataUrl);
     const mediaType = (match?.[1] ?? 'image/jpeg') as ImageMediaType;
     const data = match?.[2] ?? imageDataUrl.replace(/^data:[^,]*,/, '');
     const s = session;
     const r = await getFeedbackCached(data, mediaType, mode, smallBatch);
-    if (s !== session) return { verdict: 'OK', final: false }; // page was cleared mid-flight; nothing here is current
+    if (s !== session) return { verdict: 'OK', final: false, display: '' }; // page was cleared mid-flight; nothing here is current
     maybeCaptureLesson(r.verdict, mode);
     return r;
   }
@@ -186,17 +191,21 @@ export function useFeedback() {
   // (an illegibility request interleaved between two rungs of the same error must not
   // truncate the run at the later, thinner rung); only a CORRECT separates problems.
   function lastError(): string {
-    let first = '';
+    const run: string[] = [];
     for (let i = history.length - 1; i >= 0; i--) {
       const h = history[i];
       if (isReadNudge(h) || isFinishNudge(h)) continue; // transparent, never part of a run
       if (isQuiet(h) || isCorrect(h)) {
-        if (first) break; // the trailing error run ended
+        if (run.length) break; // the trailing error run ended
         continue; // skip non-errors recorded after the resolve
       }
-      first = h;
+      run.unshift(h); // rebuild oldest-first
     }
-    return first;
+    // The run's first rung is now a bare FLAG (error class + locus, no constraint);
+    // the second rung is the one that names the violated rule, so it seeds the lesson
+    // when the ladder got that far. A flag-only run still seeds — the correction
+    // fields carry the real content either way.
+    return run[1] ?? run[0] ?? '';
   }
 
   // Lesson capture: the moment a problem turns CORRECT after an error, the error and
@@ -310,7 +319,7 @@ export function useFeedback() {
     // guessing at a name the strict schema forces it to emit.
     lines.push(
       '',
-      'In "final", report true exactly when every sub-part visible on the page carries its own marked final result, else false — decided fresh on every scan, whatever the verdict. It is how the app knows the learner has declared the page done.',
+      'In "final", report true exactly when every sub-part visible on the page carries its own marked final result, else false — decided fresh on every scan, whatever the verdict. It is how the app knows the learner has declared the page done. In "display", give the same sentence as "verdict" with its mathematics as compact LaTeX between single $ delimiters — the screen twin of the spoken form; empty for OK and CORRECT.',
     );
     // The constant language line sits above the history so the growing part stays last.
     if (settings.api.feedbackLang === 'German') lines.push('', GERMAN_GRADING);
@@ -358,6 +367,7 @@ export function useFeedback() {
     problem: string;
     solution: string;
     verdict: string;
+    display: string;
     final: boolean;
     correction: { wrong: string; right: string };
     difficulty?: number;
@@ -406,6 +416,7 @@ export function useFeedback() {
         problem: '',
         solution: '',
         verdict: 'OK',
+        display: '',
         final: false,
         correction: { wrong: '', right: '' },
         ungraded: true,
@@ -436,6 +447,7 @@ export function useFeedback() {
       // trailing one defensively anyway, or it would defeat the verbatim-repeat match
       // (and the audio dedup) and end up spoken aloud.
       verdict: cleanText(parsed.verdict).trim().replace(/\s*\[unheard\]$/i, ''),
+      display: cleanText(parsed.display).trim(),
       final: parsed.final === true,
       correction,
       difficulty,
@@ -455,7 +467,7 @@ export function useFeedback() {
     mediaType: ImageMediaType,
     mode: Mode,
     smallBatch = false,
-  ): Promise<{ verdict: string; final: boolean; ungraded?: boolean }> {
+  ): Promise<{ verdict: string; final: boolean; ungraded?: boolean; display: string }> {
     const wantSkills = settings.api.trackSkills;
     const s = session; // stale-session writes are forbidden past every await below
 
@@ -472,7 +484,7 @@ export function useFeedback() {
         buildCachedContext(false, smallBatch),
         wantSkills,
       );
-      if (s !== session) return { verdict: 'OK', final: false };
+      if (s !== session) return { verdict: 'OK', final: false, display: '' };
       if (r.correction.wrong || r.correction.right) lastCorrection = r.correction;
       if (r.solution) cachedSolution = r.solution;
       if (r.problem) cachedProblem = r.problem;
@@ -484,7 +496,7 @@ export function useFeedback() {
           `[nuclear-math] solve: cached=${cachedSolution !== ''} (solution ${r.solution.length} chars), problem=${JSON.stringify(r.problem)}, verdict=${JSON.stringify(r.verdict)}`,
         );
       }
-      return { verdict: r.verdict, final: r.final, ungraded: r.ungraded };
+      return { verdict: r.verdict, final: r.final, ungraded: r.ungraded, display: r.display };
     }
 
     // VERIFY every scan on the cheap model against the cache, correcting continuously. It stays
@@ -501,7 +513,7 @@ export function useFeedback() {
       mode,
       buildCachedContext(true, smallBatch),
     );
-    if (s !== session) return { verdict: 'OK', final: false };
+    if (s !== session) return { verdict: 'OK', final: false, display: '' };
     if (r.correction.wrong || r.correction.right) lastCorrection = r.correction;
     // Bounded and line-deduped: a verify model that (against instructions) re-returns
     // covered lines must not grow or duplicate the per-scan reference. The problem label
@@ -535,7 +547,7 @@ export function useFeedback() {
     // verdict instead of returning the quiet.
     const finalButUndecided = r.final && isQuiet(r.verdict) && !r.ungraded;
     if (!isCorrect(r.verdict) && !finalButUndecided) {
-      return { verdict: r.verdict, final: r.final, ungraded: r.ungraded };
+      return { verdict: r.verdict, final: r.final, ungraded: r.ungraded, display: r.display };
     }
 
     // The verify judged the answer finished (CORRECT, or final-marked with no verdict):
@@ -550,10 +562,10 @@ export function useFeedback() {
       buildCachedContext(true),
       wantSkills,
     );
-    if (s !== session) return { verdict: 'OK', final: false };
+    if (s !== session) return { verdict: 'OK', final: false, display: '' };
     if (c.correction.wrong || c.correction.right) lastCorrection = c.correction;
     if (isCorrect(c.verdict)) captureSkills(c);
-    return { verdict: c.verdict, final: c.final, ungraded: c.ungraded };
+    return { verdict: c.verdict, final: c.final, ungraded: c.ungraded, display: c.display };
   }
 
   /** Commit a verdict to the page's session memory (kept distinct). */

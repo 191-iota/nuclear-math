@@ -275,7 +275,7 @@ async function runFeedback() {
     // strokes then stillness, the shape of a final mark. The model gets told, so it
     // checks beneath the results before staying quiet.
     const smallBatch = newStrokes < settings.scan.minNewStrokes;
-    const { verdict: text, final, ungraded } = await feedback.getFeedback(
+    const { verdict: text, final, ungraded, display } = await feedback.getFeedback(
       img,
       activeMode.value,
       smallBatch,
@@ -300,7 +300,10 @@ async function runFeedback() {
       // Always reflect the CURRENT scan's verdict on screen — a glance is opt-in, so even a
       // held correction shows here while the audio waits out its grace — and never let a
       // resolved or changed error linger as stale text carried over from an earlier scan.
-      lastFeedback.value = feedback.describe(text, activeMode.value);
+      // The screen gets the display twin (notation, KaTeX-rendered), the audio keeps the
+      // spoken form; a CORRECT stays the plain confirmation.
+      lastFeedback.value =
+        !feedback.isCorrect(text) && display ? display : feedback.describe(text, activeMode.value);
     }
     status.value = '';
     // Correct → offer to auto-advance to the next problem; any other verdict (a fresh error
