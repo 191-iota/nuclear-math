@@ -8,12 +8,12 @@
 <text x="80" y="98" font-size="14.5"><tspan fill="#ece9dd">“You multiplied the exponents — </tspan><tspan fill="#d8b24a">when powers of the same base are multiplied,</tspan></text>
 <text x="80" y="119" font-size="14.5"><tspan fill="#d8b24a">the exponents are added</tspan><tspan fill="#ece9dd">.”</tspan></text>
 <circle cx="52" cy="178" r="4" fill="#d8b24a"/>
-<text x="80" y="160" font-size="10" fill="#9b988a" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace" letter-spacing="0.05em">RUNG 2 · THE CONSTRAINT, THEN THE MOVE</text>
-<text x="80" y="184" font-size="14.5"><tspan fill="#d8b24a">“A factor that can be negative flips the inequality</tspan><tspan fill="#ece9dd"> — split into the cases</tspan></text>
-<text x="80" y="205" font-size="14.5"><tspan fill="#ece9dd">one minus x positive and one minus x negative, and solve both.”</tspan></text>
+<text x="80" y="160" font-size="10" fill="#9b988a" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace" letter-spacing="0.05em">RUNG 2 · THE CONSTRAINT, THEN WHAT IT REQUIRES</text>
+<text x="80" y="184" font-size="14.5"><tspan fill="#d8b24a">“A factor that can be negative flips the inequality</tspan><tspan fill="#ece9dd"> — this step needs the cases</tspan></text>
+<text x="80" y="205" font-size="14.5"><tspan fill="#ece9dd">one minus x positive and one minus x negative.”</tspan></text>
 <circle cx="52" cy="264" r="4" fill="#d8b24a"/>
 <text x="80" y="246" font-size="10" fill="#9b988a" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace" letter-spacing="0.05em">RUNG 3 · THE SOLUTIONS, ONE STEP ONLY</text>
-<text x="80" y="270" font-size="14.5"><tspan fill="#ece9dd">“Look up just this step in the solutions, </tspan><tspan fill="#d8b24a">check how it respects the rule</tspan><tspan fill="#ece9dd">,</tspan></text>
-<text x="80" y="291" font-size="14.5"><tspan fill="#ece9dd">explain it to yourself, then write it here in your own words.”</tspan></text>
-<text x="80" y="330" font-size="10.5" fill="#9b988a" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace">the violated constraint is named at every rung · the corrected value at none</text>
+<text x="80" y="270" font-size="14.5"><tspan fill="#ece9dd">“This one step is worked in the printed solutions — explaining to yourself</tspan></text>
+<text x="80" y="291" font-size="14.5"><tspan fill="#d8b24a">how it keeps the rule</tspan><tspan fill="#ece9dd"> and rewriting it in your own words is what makes it hold.”</tspan></text>
+<text x="80" y="330" font-size="10.5" fill="#9b988a" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace">the violated constraint is named at every rung · the corrected value at none · statements, never orders</text>
 </svg>

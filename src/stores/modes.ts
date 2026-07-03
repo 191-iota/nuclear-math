@@ -7,14 +7,14 @@ import defaultModes from '@config/modes.json';
  * presets are persisted to localStorage. The Presets view mutates this directly;
  * MainView reads it reactively so prompt / debounce / effort changes apply live.
  */
-// Bumped when the shipped modes change in a way a stale saved copy must not shadow (v14:
-// FINAL MARK gains a visual description of the mark — thin, easy-to-dismiss ink checked
-// beneath every settled result — because the double underline kept going unseen and the
-// learner fell back to writing "done"; the small-batch scan hint and the client-side
-// final+OK→confirm escalation land in the same pass). A bump drops
+// Bumped when the shipped modes change in a way a stale saved copy must not shadow (v15:
+// the tutor becomes DECLARATIVE — a corrector, not an instructor. Every hint states what
+// the ink shows, what the constraint requires, or where the resolution lives; imperatives
+// ("Recheck", "Split into cases", "Look it up") are gone from every rung, illegibility's
+// rewrite request excepted as the tool's own need). A bump drops
 // the old localStorage and re-seeds from
 // config/modes.json on next load, so new behaviour actually reaches an existing browser.
-const KEY = 'nl.modes.v14';
+const KEY = 'nl.modes.v15';
 
 function seed(): Mode[] {
   return structuredClone(defaultModes) as unknown as Mode[];
