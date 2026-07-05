@@ -1,5 +1,6 @@
 import { reactive } from 'vue';
 import { settings } from '@/stores/settings';
+import { logEvent } from '@/stores/obslog';
 import {
   KC_SET,
   KC_DEFS,
@@ -42,6 +43,11 @@ export interface KCObservation {
 export interface SkillPacket {
   difficulty?: number;
   skills?: KCObservation[];
+  // Delivered hint rungs of the resolving error run (0 = unaided). A CORRECT reached
+  // at rung 0 and one reached after climbing to the printed solutions used to move the
+  // rating identically; this is how the packet says how much help the win took. Client-
+  // side only, never sent to the model.
+  rungs?: number;
 }
 
 // Durable per-KC state (<=125 records).
@@ -74,6 +80,9 @@ export interface GlobalAbility {
   n: number; // problems observed
   day: number; // day of the last update, for the daily loss floor
   dayStart: number; // theta at the start of that day
+  lastAt: number; // ms epoch of the last update; idle days re-inflate RD (layoff honesty)
+  solvedDay: number; // day of the solved counter below
+  solvedCount: number; // CORRECTs delivered that day (the session line's count)
 }
 
 // One rating snapshot per day with activity — the source for the rating curve.
@@ -89,6 +98,12 @@ export interface SkillStore {
   diffHist: number[]; // realized observed-difficulty tally [d1..d7], a spread audit
   g: GlobalAbility;
   ratingLog: RatingSnapshot[];
+  // Dominant domain of the last few rated problems. When one domain fills more than
+  // half the window, further wins there are confirmation about that domain, not
+  // information about G: the schema-farming counterpart of the confirmation cap.
+  recentDomains: string[];
+  // Highest rank band ever spoken aloud (rank.ts n), so a crossing is announced once.
+  announcedRank: number;
 }
 
 // ---- locked constants ----
@@ -148,9 +163,21 @@ function score(sig: KCSignal): number {
   return sig === 'clean' ? 1 : sig === 'shaky' ? SHAKY_SCORE : 0;
 }
 
+// ---- locked constants: rating honesty ----
+// Layoff honesty: g.RD re-inflates with idle days (smaller constant than the per-KC
+// C_RD; ability fades slower than recall) and is capped below fresh-store uncertainty,
+// so a long break makes the number provisional again without zeroing it.
+const G_RD_IDLE = 0.02;
+const G_RD_IDLE_MAX = 0.9;
+// Topic window for the blocked-diet cap: dominant domains of the last N rated problems.
+const DOMAIN_WINDOW = 10;
+const DOMAIN_MIN = 4; // no cap judgment off fewer problems than this
+// Hinted-win discount: hintW = 1 / (1 + HINT_W * rungs), positive movement only.
+const HINT_W = 0.5;
+
 // ---- store ----
 function freshG(): GlobalAbility {
-  return { theta: 0, RD: 1.2, n: 0, day: 0, dayStart: 0 };
+  return { theta: 0, RD: 1.2, n: 0, day: 0, dayStart: 0, lastAt: 0, solvedDay: 0, solvedCount: 0 };
 }
 
 function load(): SkillStore {
@@ -169,13 +196,26 @@ function load(): SkillStore {
             : [0, 0, 0, 0, 0, 0, 0],
           g: p.g && typeof p.g.theta === 'number' ? { ...freshG(), ...(p.g as GlobalAbility) } : freshG(),
           ratingLog: Array.isArray(p.ratingLog) ? (p.ratingLog as RatingSnapshot[]) : [],
+          recentDomains: Array.isArray(p.recentDomains)
+            ? (p.recentDomains as string[]).slice(-DOMAIN_WINDOW)
+            : [],
+          announcedRank: typeof p.announcedRank === 'number' ? p.announcedRank : 0,
         };
       }
     }
   } catch {
     /* fall through to a fresh store */
   }
-  return { version: 1, kcs: {}, log: [], diffHist: [0, 0, 0, 0, 0, 0, 0], g: freshG(), ratingLog: [] };
+  return {
+    version: 1,
+    kcs: {},
+    log: [],
+    diffHist: [0, 0, 0, 0, 0, 0, 0],
+    g: freshG(),
+    ratingLog: [],
+    recentDomains: [],
+    announcedRank: 0,
+  };
 }
 
 export const skillStore = reactive(load());
@@ -207,8 +247,10 @@ function materialize(id: string): KCState {
   return kc;
 }
 
-// One uncertainty-driven Elo step for a single knowledge component.
-function eloUpdate(o: KCObservation, sig: KCSignal, od: number, blameScale: number, now: number): void {
+// One uncertainty-driven Elo step for a single knowledge component. `hintW` discounts
+// POSITIVE movement only (a hinted win is weaker evidence of unaided competence, the
+// construct the exams price); losses always count in full.
+function eloUpdate(o: KCObservation, sig: KCSignal, od: number, blameScale: number, hintW: number, now: number): void {
   const kc = materialize(o.id);
   // Clamped: a backwards system clock (now < lastSeen) would drive the RD pre-inflation
   // sqrt negative and poison theta/RD with a persisted NaN.
@@ -228,7 +270,8 @@ function eloUpdate(o: KCObservation, sig: KCSignal, od: number, blameScale: numb
   const sc = score(sig);
   const creditEff =
     credit(o.role) * (sig === 'shaky' ? SHAKY_CREDIT : 1) * (sig === 'wrong' ? blameScale : 1);
-  kc.theta += creditEff * K * (sc - E);
+  const step = creditEff * K * (sc - E);
+  kc.theta += step > 0 ? hintW * step : step;
   // Shrink RD by the Fisher information this observation carried.
   kc.RD = Math.sqrt(1 / (1 / (kc.RD * kc.RD) + Math.max(EPS, E * (1 - E))));
   kc.n += 1;
@@ -248,7 +291,12 @@ function signalRank(sig: KCObservation['signal']): number {
 // Fold one solved-problem packet into the estimator. Order matters: filter to valid
 // ids, dedupe keeping the worst signal, sort most-informative first, then cap, so any
 // dropped observation is the least informative.
-export function applySkillPacket(packet: SkillPacket, steps: number, now: number): void {
+export function applySkillPacket(
+  packet: SkillPacket,
+  steps: number,
+  now: number,
+  meta?: { source: 'resolve' | 'abandon'; label?: string },
+): void {
   if (!settings.api.trackSkills) return;
   const raw = packet.skills ?? [];
   if (!raw.length) return;
@@ -283,7 +331,10 @@ export function applySkillPacket(packet: SkillPacket, steps: number, now: number
     .reduce((a, o) => a + credit(o.role), 0);
   const blameScale = 1 / Math.max(1, wrongCredit);
 
-  for (const o of use) eloUpdate(o, o.signal as KCSignal, od, blameScale, now);
+  const rungs = Math.max(0, Math.round(packet.rungs ?? 0));
+  const hintW = 1 / (1 + HINT_W * rungs);
+
+  for (const o of use) eloUpdate(o, o.signal as KCSignal, od, blameScale, hintW, now);
 
   // Global ability: this problem is ONE observation of G — the mean signal of ALL
   // validated observations (`signed`, before the per-KC maxK truncation, whose
@@ -297,20 +348,48 @@ export function applySkillPacket(packet: SkillPacket, steps: number, now: number
   // about one rank band (the daily loss floor) — no chess rating moves 600 in a day.
   const gSc = signed.reduce((a, o) => a + score(o.signal as KCSignal), 0) / signed.length;
   const g = skillStore.g;
+  // Layoff honesty: idle days re-inflate g's uncertainty BEFORE this observation is
+  // priced, so the first problems back move the number properly and the displayed
+  // plus-minus stops asserting stale confidence after a break.
+  if (g.lastAt) {
+    const idleDays = Math.max(0, now - g.lastAt) / DAY;
+    g.RD = Math.min(G_RD_IDLE_MAX, Math.sqrt(g.RD * g.RD + G_RD_IDLE * G_RD_IDLE * idleDays));
+  }
   const gE = sigma(g.theta - (od - 3) * D_SLOPE);
   const gDay = Math.floor(now / DAY);
   if (g.day !== gDay) {
     g.day = gDay;
     g.dayStart = g.theta;
   }
+  // Blocked-diet cap: how much of the recent window this problem's dominant domain
+  // already fills. Beyond half, positive movement shrinks by the redundancy share (a
+  // tenth consecutive induction win is confirmation about induction, not information
+  // about G); losses always count in full, and play stays 100% learner-chosen.
+  const domCount = new Map<string, number>();
+  for (const o of use) {
+    const d = domainOf(o.id);
+    domCount.set(d, (domCount.get(d) ?? 0) + 1);
+  }
+  let dom = '';
+  for (const [d, c] of domCount) if (!dom || c > (domCount.get(dom) ?? 0)) dom = d;
+  const ring = skillStore.recentDomains;
+  const sameShare = ring.length >= DOMAIN_MIN ? ring.filter((d) => d === dom).length / ring.length : 0;
   if (!(gSc >= gE && gE >= 0.85)) {
     const gK = Math.min(0.35, g.RD * g.RD);
     const damp = gSc < gE ? 4 * gE * (1 - gE) : 1;
-    g.theta += gK * damp * (gSc - gE);
+    let gStep = gK * damp * (gSc - gE);
+    if (gStep > 0) {
+      gStep *= hintW; // a hinted win carries less information (positive side only)
+      if (sameShare > 0.5) gStep *= 1 - sameShare;
+    }
+    g.theta += gStep;
     g.theta = Math.max(g.theta, g.dayStart - MAX_DAY_DROP);
     g.RD = Math.max(0.25, Math.sqrt(1 / (1 / (g.RD * g.RD) + Math.max(EPS, gE * (1 - gE)))));
   }
   g.n += 1;
+  g.lastAt = now;
+  ring.push(dom);
+  if (ring.length > DOMAIN_WINDOW) ring.shift();
 
   // Rating snapshot for the curve: one point per active day, upserted so the last
   // problem of the day wins. Bounded like the domain log.
@@ -325,6 +404,62 @@ export function applySkillPacket(packet: SkillPacket, steps: number, now: number
 
   upsertSnapshots(use, now);
   persist();
+
+  // One ledger event per applied packet (the observation log; see obslog.ts). Compact
+  // on purpose: enough to replay the estimator's inputs and audit scale drift offline.
+  logEvent('packet', {
+    source: meta?.source ?? 'resolve',
+    label: meta?.label ?? '',
+    od,
+    gSc: Math.round(gSc * 1000) / 1000,
+    gE: Math.round(gE * 1000) / 1000,
+    rungs,
+    sameShare: Math.round(sameShare * 100) / 100,
+    rating: ratingOf(g.theta),
+    n: g.n,
+    skills: use.map((o) => `${o.id}:${o.role === 'core' ? 'c' : 's'}:${(o.signal as string)[0]}`),
+  });
+}
+
+// ---- session-line day stats (P02) ----
+
+// Counted at the moment a CORRECT is actually delivered (deliver()'s dedup key makes
+// that once per problem), never derived from usage buckets: an abandoned page is a
+// rated loss and must never read as solved.
+export function noteSolved(now = Date.now()): void {
+  const g = skillStore.g;
+  const day = Math.floor(now / DAY);
+  if (g.solvedDay !== day) {
+    g.solvedDay = day;
+    g.solvedCount = 0;
+  }
+  g.solvedCount += 1;
+  persist();
+}
+
+export interface DayStats {
+  solved: number;
+  ratingDelta: number | null; // today's rating movement, null before the first rated problem
+}
+
+export function dayStats(now = Date.now()): DayStats {
+  const g = skillStore.g;
+  const day = Math.floor(now / DAY);
+  return {
+    solved: g.solvedDay === day ? g.solvedCount : 0,
+    ratingDelta: g.n > 0 && g.day === day ? ratingOf(g.theta) - ratingOf(g.dayStart) : null,
+  };
+}
+
+export function announcedRank(): number {
+  return skillStore.announcedRank;
+}
+
+export function markRankAnnounced(n: number): void {
+  if (n > skillStore.announcedRank) {
+    skillStore.announcedRank = n;
+    persist();
+  }
 }
 
 // ---- placement + rating: where the global ability sits ----
@@ -669,6 +804,8 @@ export function resetSkills(): void {
   skillStore.diffHist.splice(0, skillStore.diffHist.length, 0, 0, 0, 0, 0, 0, 0);
   Object.assign(skillStore.g, freshG());
   skillStore.ratingLog.splice(0, skillStore.ratingLog.length);
+  skillStore.recentDomains.splice(0, skillStore.recentDomains.length);
+  skillStore.announcedRank = 0;
   persist();
 }
 

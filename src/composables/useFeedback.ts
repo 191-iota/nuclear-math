@@ -5,7 +5,8 @@ import type { Mode } from '@/types';
 import { recordUsage, newPage, type Role } from '@/stores/usage';
 import { addLesson } from '@/stores/lessons';
 import { modelInfo } from '@/models';
-import { applySkillPacket, type SkillPacket, type KCObservation } from '@/stores/skills';
+import { applySkillPacket, noteSolved, type SkillPacket, type KCObservation } from '@/stores/skills';
+import { logEvent } from '@/stores/obslog';
 import { KC_IDS, SKILL_ASSESSOR } from '@/kc';
 import { generateLessonCard } from '@/lessonCard';
 
@@ -208,6 +209,23 @@ export function useFeedback() {
     return run[1] ?? run[0] ?? '';
   }
 
+  // How many hint sentences for the resolving error the learner actually HEARD (P06:
+  // scaffold depth). Same trailing-run walk as lastError, then filtered to delivered
+  // entries: a held [unheard] sentence assisted nothing and must not discount the win.
+  function deliveredRungs(): number {
+    const run: string[] = [];
+    for (let i = history.length - 1; i >= 0; i--) {
+      const h = history[i];
+      if (isReadNudge(h) || isFinishNudge(h)) continue;
+      if (isQuiet(h) || isCorrect(h)) {
+        if (run.length) break;
+        continue;
+      }
+      run.unshift(h);
+    }
+    return run.filter((h) => spokenKeys.has(deliveryKey(h))).length;
+  }
+
   // Lesson capture: the moment a problem turns CORRECT after an error, the error and
   // the worked solution are already in hand from this scan. One per problem; nothing
   // is captured when the work was right the first time. The card itself is written by
@@ -220,6 +238,7 @@ export function useFeedback() {
     const mistake = lastError();
     if (!mistake) return;
     lessonCaptured = true;
+    logEvent('capture', { label: cachedProblem, rungs: deliveredRungs() });
     void buildAndAddLesson({
       modeId: mode.id,
       modeLabel: mode.label,
@@ -284,7 +303,12 @@ export function useFeedback() {
   function captureSkills(r: Reply): void {
     pageReachedCorrect = true;
     if (settings.api.trackSkills && !skillApplied && r.skills?.length) {
-      applySkillPacket({ difficulty: r.difficulty, skills: r.skills }, lastSteps, Date.now());
+      applySkillPacket(
+        { difficulty: r.difficulty, skills: r.skills, rungs: deliveredRungs() },
+        lastSteps,
+        Date.now(),
+        { source: 'resolve', label: cachedProblem },
+      );
       skillApplied = true;
     }
   }
@@ -698,6 +722,9 @@ export function useFeedback() {
     const key = deliveryKey(text);
     if (spokenKeys.has(key)) return false; // already said this one this problem
     spokenKeys.add(key);
+    // The session line's solved counter: a delivered CORRECT, once per problem (this
+    // key), never a usage bucket; an abandoned page is a loss and never reads solved.
+    if (isCorrect(text)) noteSolved();
     // A correct answer is spoken, not chimed ("say it is correct, don't mark it").
     const markSilently = isCorrect(text);
     if ((mode.feedbackStyle === 'chime' || mode.feedbackStyle === 'both') && !markSilently) {
@@ -727,7 +754,12 @@ export function useFeedback() {
         const all = skillMembership.skills ?? [];
         const core = all.filter((o) => o.role === 'core');
         const tagged = (core.length ? core : all).map((o) => ({ ...o, signal: sig }));
-        applySkillPacket({ difficulty: skillMembership.difficulty, skills: tagged }, lastSteps, Date.now());
+        applySkillPacket(
+          { difficulty: skillMembership.difficulty, skills: tagged, rungs: deliveredRungs() },
+          lastSteps,
+          Date.now(),
+          { source: 'abandon', label: cachedProblem },
+        );
       }
     }
     history.length = 0;
