@@ -70,18 +70,22 @@ export async function generateLessonCard(
     ]
       .filter(Boolean)
       .join('\n');
-    const resp = await createCompletion({
-      model: CARD_MODEL,
-      // High-effort reasoning counts against this budget; 2500 silently truncated the
-      // card (finish_reason length -> unparseable -> lesson lost) on hard slips.
-      max_completion_tokens: 8000,
-      reasoning_effort: 'high',
-      messages: [
-        { role: 'system', content: SYSTEM + lang },
-        { role: 'user', content: user },
-      ],
-      response_format: { type: 'json_schema', json_schema: { name: 'flashcard', strict: true, schema: CARD_SCHEMA } },
-    });
+    const resp = await createCompletion(
+      {
+        model: CARD_MODEL,
+        // High-effort reasoning counts against this budget; 2500 silently truncated the
+        // card (finish_reason length -> unparseable -> lesson lost) on hard slips.
+        max_completion_tokens: 8000,
+        reasoning_effort: 'high',
+        messages: [
+          { role: 'system', content: SYSTEM + lang },
+          { role: 'user', content: user },
+        ],
+        response_format: { type: 'json_schema', json_schema: { name: 'flashcard', strict: true, schema: CARD_SCHEMA } },
+      },
+      // Fire-and-forget: the card must never delay the next page's first solve.
+      { lane: 'background' },
+    );
     const u = (resp as any)?.usage ?? {};
     recordUsage({
       mode: input.mode ?? 'lesson-card',
