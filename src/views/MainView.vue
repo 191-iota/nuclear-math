@@ -6,7 +6,10 @@ import { useCanvas } from '@/composables/useCanvas';
 import { useFeedback } from '@/composables/useFeedback';
 import MathText from '@/components/MathText.vue';
 import { settings } from '@/stores/settings';
-import { recommendPractice } from '@/stores/skills';
+import { recommendPractice, rating, dayStats, announcedRank, markRankAnnounced } from '@/stores/skills';
+import { dueLessons, lessonStats, lessonStore, nowTick, type Lesson } from '@/stores/lessons';
+import { rankForRating } from '@/rank';
+import { generateDrill } from '@/drill';
 import type { Mode } from '@/types';
 
 const DOT_MOVE = 1;
@@ -41,10 +44,103 @@ const requesting = ref(false);
 // countdown clears the pad for the next problem unless you keep it (or write more).
 const autoClearLeft = ref(0); // seconds remaining; 0 = inactive
 let autoClearTimer: number | undefined;
-// What to practise next, refreshed at the solved moment — the one point where the
-// learner actually decides what to write next, so the estimator's recommendation
-// is worth a line right there instead of only living in the Progress tab.
-const nextDrill = ref('');
+// The seam controller (P02): ONE next-up item drawn from a shuffled merge of the first
+// due card and the estimator's weak/fading targets, refreshed at the solved moment and
+// on Clear, the two points where the learner decides what to write next. It lives in
+// the idle footer slot as one declarative line, never a card, never a queue: ignoring
+// it costs nothing. Tapping it materializes the work (a drill call for a skill, the
+// card front for a due lesson), pinned beside the feedback until Clear.
+type NextUp =
+  | { kind: 'drill'; id: string; label: string; masteryPct: number }
+  | { kind: 'due'; lesson: Lesson };
+const nextUp = ref<NextUp | null>(null);
+const pinned = ref('');
+const drillBusy = ref(false);
+const DAY_MS = 86_400_000;
+
+function pickNextUp() {
+  const pool: NextUp[] = [];
+  const due = dueLessons()[0];
+  if (due) pool.push({ kind: 'due', lesson: due });
+  const rec = recommendPractice();
+  if (rec.drill) pool.push({ kind: 'drill', id: rec.drill.id, label: rec.drill.label, masteryPct: rec.drill.masteryPct });
+  if (rec.review) pool.push({ kind: 'drill', id: rec.review.id, label: rec.review.label, masteryPct: rec.review.masteryPct });
+  nextUp.value = pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
+}
+
+const nextUpLabel = computed(() => {
+  const n = nextUp.value;
+  if (!n) return '';
+  return n.kind === 'due'
+    ? `next, review: ${n.lesson.problem || n.lesson.modeLabel}`
+    : `next, drill: ${n.label}`;
+});
+
+// The session line: what the day answers back. Counts come from delivered CORRECTs
+// and the estimator's own day bookkeeping, never usage buckets. One line, hard-capped:
+// the rating delta is the only number besides counts, and it never grows a metric.
+const sessionLine = computed(() => {
+  const now = nowTick();
+  const parts: string[] = [];
+  const day = dayStats(now);
+  if (day.solved > 0) {
+    const capturedToday = lessonStore.lessons.filter(
+      (l) => Math.floor(l.ts / DAY_MS) === Math.floor(now / DAY_MS),
+    ).length;
+    let s = `today: ${day.solved} solved`;
+    if (day.ratingDelta !== null) s += ` · ${day.ratingDelta >= 0 ? '+' : ''}${day.ratingDelta}`;
+    if (capturedToday > 0) s += ` · ${capturedToday} captured`;
+    parts.push(s);
+  }
+  const due = lessonStats(now).due;
+  if (due > 0) parts.push(`${due} ${due === 1 ? 'card' : 'cards'} due`);
+  if (nextUpLabel.value) parts.push(nextUpLabel.value);
+  return parts.join(' · ');
+});
+
+const idleLine = computed(() => {
+  if (drillBusy.value) return 'Writing the drill…';
+  return sessionLine.value || 'Write on the pad. Feedback appears here.';
+});
+
+const canTapNextUp = computed(
+  () => !status.value && !lastFeedback.value && !pinned.value && !!nextUp.value && !drillBusy.value,
+);
+
+async function onNextUpTap() {
+  if (!canTapNextUp.value) return;
+  const n = nextUp.value;
+  if (!n) return;
+  if (n.kind === 'due') {
+    // Display-only v1: the card front comes to the pad's edge; grading the re-test in
+    // ink is the P03 step and stays in the Lessons tab until then.
+    pinned.value = n.lesson.front || n.lesson.mistake || '';
+    return;
+  }
+  drillBusy.value = true;
+  try {
+    const d = await generateDrill(n.id, n.masteryPct);
+    if (d) pinned.value = `${d.task} ${d.problem}`.trim();
+    else status.value = 'Drill generation failed.';
+  } finally {
+    drillBusy.value = false;
+  }
+}
+
+// A rank-band crossing speaks one factual sentence ("2071. Strong FH Student."),
+// upward only, each band once ever (persisted), and only when the mode speaks at all.
+// Sequenced behind the CORRECT utterance because speak() cancels in-flight speech.
+// A fact, not praise; it dies in one commit if it reads as noise.
+function maybeAnnounceRank() {
+  const r = rating();
+  if (!r || r.provisional) return;
+  const held = rankForRating(r.value);
+  if (held.n <= announcedRank()) return;
+  const style = activeMode.value.feedbackStyle;
+  if (style !== 'spoken' && style !== 'both') return;
+  markRankAnnounced(held.n);
+  window.setTimeout(() => feedback.speak(`${r.value}. ${held.title}.`), 3500);
+}
 
 function cancelAutoClear() {
   if (autoClearTimer) {
@@ -57,8 +153,8 @@ function cancelAutoClear() {
 function startAutoClear() {
   const secs = settings.scan.autoClearSec ?? 0;
   if (secs <= 0 || autoClearLeft.value > 0) return; // disabled, or already counting
-  const rec = recommendPractice();
-  nextDrill.value = rec.drill ? rec.drill.label : '';
+  pickNextUp();
+  maybeAnnounceRank();
   autoClearLeft.value = secs;
   autoClearTimer = window.setInterval(() => {
     autoClearLeft.value -= 1;
@@ -373,6 +469,8 @@ function startFreshPage() {
   feedback.resetSession();
   lastFeedback.value = '';
   status.value = '';
+  pinned.value = '';
+  pickNextUp();
 }
 
 // Switching mode is also a fresh start for feedback context (keep the drawing).
@@ -384,6 +482,7 @@ watch(selectedModeId, () => {
   feedback.resetSession();
   lastFeedback.value = '';
   status.value = '';
+  pinned.value = '';
   if (canvas.hasContent()) {
     dirty = true;
     scheduleFeedback();
@@ -392,6 +491,7 @@ watch(selectedModeId, () => {
 
 let resizeObserver: ResizeObserver | undefined;
 onMounted(() => {
+  pickNextUp();
   canvas.resize();
   if (canvasRef.value && 'ResizeObserver' in window) {
     resizeObserver = new ResizeObserver(() => canvas.resize());
@@ -439,7 +539,7 @@ const connectionLabel = computed(() => {
         <span class="ac-dot" />
         <span class="ac-msg">
           Solved. Clearing for the next problem in {{ autoClearLeft }}s
-          <template v-if="nextDrill"> · next, drill: {{ nextDrill }}</template>
+          <template v-if="nextUpLabel"> · {{ nextUpLabel }}</template>
         </span>
         <button class="ghost" @click="cancelAutoClear">Keep</button>
       </div>
@@ -448,10 +548,18 @@ const connectionLabel = computed(() => {
     <footer class="status">
       <span class="mode">{{ activeMode.label }}</span>
       <span class="sep">·</span>
-      <!-- Verdicts are mandated to be plain speakable prose, but a model that slips in
-           LaTeX anyway should render it, not show raw markup; plain text passes through
-           MathText unchanged. -->
-      <span class="msg"><MathText :text="status || lastFeedback || 'Write on the pad. Feedback appears here.'" /></span>
+      <!-- Slot priority: verdict / status > (idle) the session line. The pinned next-up
+           problem gets its own span so a scan's feedback never hides the problem the
+           learner is still copying. Verdicts are mandated to be plain speakable prose,
+           but a model that slips in LaTeX anyway should render it, not show raw markup;
+           plain text passes through MathText unchanged. -->
+      <span class="msg" :class="{ tappable: canTapNextUp }" @click="onNextUpTap">
+        <MathText :text="status || lastFeedback || idleLine" />
+      </span>
+      <template v-if="pinned">
+        <span class="sep">·</span>
+        <span class="msg pin"><MathText :text="pinned" /></span>
+      </template>
     </footer>
   </div>
 </template>
@@ -557,5 +665,15 @@ const connectionLabel = computed(() => {
 
 .status .msg {
   color: var(--ink);
+}
+
+.status .msg.tappable {
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
+.status .pin {
+  color: var(--muted);
 }
 </style>
