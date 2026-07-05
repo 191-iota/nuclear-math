@@ -16,6 +16,10 @@ import defaultModes from '@config/modes.json';
 // the old localStorage and re-seeds from
 // config/modes.json on next load, so new behaviour actually reaches an existing browser.
 const KEY = 'nl.modes.v16';
+// The prompt version, exported so the observation ledger can stamp each event with the
+// rater that produced it: a 1900 graded under v14 and a 1900 under v16 are different
+// scales, and that drift is only diagnosable if the events say who judged them.
+export const MODES_KEY = KEY;
 
 function seed(): Mode[] {
   return structuredClone(defaultModes) as unknown as Mode[];

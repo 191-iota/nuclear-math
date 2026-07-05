@@ -1,5 +1,6 @@
 import { reactive, ref } from 'vue';
 import { generateLessonCard } from '@/lessonCard';
+import { logEvent } from '@/stores/obslog';
 
 /**
  * Lessons = your own corrected mistakes, captured for free.
@@ -201,6 +202,8 @@ export function reviewLesson(id: string, remembered: boolean): void {
   const l = lessonStore.lessons.find((x) => x.id === id);
   if (!l) return;
   const now = Date.now();
+  const boxBefore = l.box;
+  const elapsedSinceDue = now - l.due; // snapshot before `due` is reassigned below
   l.lastReviewed = now;
   l.reps += 1;
   if (remembered) {
@@ -212,6 +215,17 @@ export function reviewLesson(id: string, remembered: boolean): void {
     l.lapses += 1;
   }
   l.due = now + INTERVALS_MS[l.box];
+  // The review log: without it no scheduler is ever fittable and grade honesty is
+  // unauditable. elapsedSinceDue is the adherence signal (how late the review ran).
+  logEvent('review', {
+    id: l.id,
+    grade: remembered,
+    boxBefore,
+    boxAfter: l.box,
+    elapsedSinceDue,
+    reps: l.reps,
+    lapses: l.lapses,
+  });
   persist();
 }
 
