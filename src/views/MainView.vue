@@ -56,6 +56,10 @@ type NextUp =
 const nextUp = ref<NextUp | null>(null);
 const pinned = ref('');
 const drillBusy = ref(false);
+// Panel dismissals: the pinned problem card closes via its own x, and the session
+// card can be hidden for the rest of this app session (it returns on reload; nothing
+// persisted, a dismissal is a mood, not a setting).
+const sessionHidden = ref(false);
 const DAY_MS = 86_400_000;
 
 function pickNextUp() {
@@ -448,7 +452,11 @@ function resetGating() {
   strokesAtLastScan = 0;
 }
 
-function startFreshPage() {
+// The pinned problem survives automatic page turnovers (auto-clear, a physical page
+// flip): the learner may still be copying or solving it across pages, and wiping it
+// at the unrelated problem's CORRECT lost the card mid-intent. It dies only on the
+// manual Clear (wipePin), a mode switch, or its own close button.
+function startFreshPage(wipePin = false) {
   cancelAutoClear();
   clearHold(); // a correction held for the old page must never speak onto the new one
   generation += 1; // invalidate any in-flight scan
@@ -460,7 +468,7 @@ function startFreshPage() {
   feedback.resetSession();
   lastFeedback.value = '';
   status.value = '';
-  pinned.value = '';
+  if (wipePin) pinned.value = '';
   pickNextUp();
 }
 
@@ -519,7 +527,7 @@ const connectionLabel = computed(() => {
       <select v-if="modes.length > 1" v-model="selectedModeId" aria-label="Grader preset">
         <option v-for="m in modes" :key="m.id" :value="m.id">{{ m.label }}</option>
       </select>
-      <button title="Wipe the pad and start a new problem" @click="startFreshPage">Clear</button>
+      <button title="Wipe the pad and start a new problem" @click="startFreshPage(true)">Clear</button>
       <span class="spacer" />
       <span class="conn" :class="{ on: pen.state.connected }">{{ connectionLabel }}</span>
     </header>
@@ -551,11 +559,17 @@ const connectionLabel = computed(() => {
           </div>
         </section>
         <section v-if="pinned" class="p-sec">
-          <div class="p-label">Problem</div>
+          <div class="p-label">
+            <span>Problem</span>
+            <button class="p-x" aria-label="Dismiss problem" title="Dismiss" @click="pinned = ''">×</button>
+          </div>
           <div class="p-body"><MathText :text="pinned" /></div>
         </section>
-        <section class="p-sec">
-          <div class="p-label">Session</div>
+        <section v-if="!sessionHidden" class="p-sec">
+          <div class="p-label">
+            <span>Session</span>
+            <button class="p-x" aria-label="Hide session card" title="Hide until reload" @click="sessionHidden = true">×</button>
+          </div>
           <div v-if="dayLine" class="p-row">{{ dayLine }}</div>
           <div v-if="dueLine" class="p-row">{{ dueLine }}</div>
           <button
@@ -649,12 +663,29 @@ const connectionLabel = computed(() => {
 }
 
 .p-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   font-family: var(--mono);
   font-size: 0.7rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--muted);
   margin-bottom: 0.45rem;
+}
+
+.p-x {
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1;
+  padding: 0 0.15rem;
+  cursor: pointer;
+}
+
+.p-x:hover {
+  color: var(--ink);
 }
 
 .p-body {
