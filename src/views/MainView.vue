@@ -531,7 +531,7 @@ const connectionLabel = computed(() => {
           <span class="ac-dot" />
           <span class="ac-msg">
             Solved. Clearing for the next problem in {{ autoClearLeft }}s
-            <template v-if="nextUpLabel"> · {{ nextUpLabel }}</template>
+            <template v-if="nextUpLabel"> · <MathText :text="nextUpLabel" /></template>
           </span>
           <button class="ghost" @click="cancelAutoClear">Keep</button>
         </div>
@@ -564,7 +564,8 @@ const connectionLabel = computed(() => {
             :disabled="drillBusy"
             @click="onNextUpTap"
           >
-            {{ drillBusy ? 'Writing the drill…' : nextUpLabel }}
+            <template v-if="drillBusy">Writing the drill…</template>
+            <MathText v-else :text="nextUpLabel" />
           </button>
           <div v-if="!dayLine && !dueLine && !nextUpLabel" class="p-row muted">
             Nothing queued. Solve something.
