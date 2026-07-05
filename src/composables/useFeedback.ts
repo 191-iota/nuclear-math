@@ -18,10 +18,12 @@ type ImageMediaType = 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif';
 // sub-part visible on the page carries its marked final result — on every scan, so
 // the app knows whether the learner has declared the page done (a verdict on a
 // final page is spoken at once; mid-work, a fresh correction is held for the grace
-// window first). `display` is the verdict's screen twin — the same sentence with its
-// mathematics as $-LaTeX. The spoken form fed both the ear and the footer, and a sum
-// decomposition read as "Summe von k gleich 1 bis n plus 1 von 2k minus 1 ..." is
-// unreadable as text; MathText renders the twin, TTS keeps the words.
+// window first). `display` is the verdict's screen version, rendered in the side
+// panel: the same message typeset with room (up to four short lines, $-LaTeX inline,
+// $$-LaTeX for a standalone expression), never MORE content than the spoken sentence's
+// hint-ladder rung carries. The spoken form fed both the ear and the screen once, and
+// a sum decomposition read as "Summe von k gleich 1 bis n plus 1 von 2k minus 1 ..."
+// is unreadable as text; MathText renders the panel version, TTS keeps the words.
 // `correction` is filled only when a problem
 // turns CORRECT after a flagged mistake: a clean, LaTeX-formatted statement of what
 // was wrong and the right version, stored on the lesson for later review (never
@@ -93,7 +95,7 @@ function normalize(text: string): string {
 // sentences. The word-for-word repeat rule is what keeps the audio dedup working now.
 // "unleserlich"/"nicht lesen" are mandated because isReadNudge() keys on them.
 const GERMAN_GRADING =
-  'Write the learner-facing verdict in German (Swiss Hochdeutsch, use "ss" not "ß") as ONE natural spoken sentence, the way a teacher would say it aloud. Never put a label or prefix before it — no "Schritt N:", no phrase ending in a colon — and state the location exactly once, inside the sentence, by the SHORTEST pointer that finds it — the operation or spot ("bei der Zerlegung der Summe") or a short fragment of the ink, never a recited long expression (for example "Bei x hoch drei mal x hoch zwei wurden die Exponenten multipliziert — bei gleicher Basis werden die Exponenten addiert."). When you re-report still-applicable feedback at the SAME hint level — or a still-needed rewrite request or simplification remark — repeat your earlier sentence word for word; a deeper hint level is a new sentence. For an illegibility nudge, say you cannot read the spot and ask for a rewrite, naming the nearest readable expression and using the words "unleserlich" or "nicht lesen" (for example "Ich kann den Exponenten im unterstrichenen Ergebnis nicht lesen, bitte neu schreiben."). Keep the control words OK and CORRECT exactly as written; never translate them. Write "display" in German too: the same sentence, its mathematics as compact $-LaTeX.';
+  'Write the learner-facing verdict in German (Swiss Hochdeutsch, use "ss" not "ß") as ONE natural spoken sentence, the way a teacher would say it aloud. Never put a label or prefix before it — no "Schritt N:", no phrase ending in a colon — and state the location exactly once, inside the sentence, by the SHORTEST pointer that finds it — the operation or spot ("bei der Zerlegung der Summe") or a short fragment of the ink, never a recited long expression (for example "Bei x hoch drei mal x hoch zwei wurden die Exponenten multipliziert — bei gleicher Basis werden die Exponenten addiert."). When you re-report still-applicable feedback at the SAME hint level — or a still-needed rewrite request or simplification remark — repeat your earlier sentence word for word; a deeper hint level is a new sentence. For an illegibility nudge, say you cannot read the spot and ask for a rewrite, naming the nearest readable expression and using the words "unleserlich" or "nicht lesen" (for example "Ich kann den Exponenten im unterstrichenen Ergebnis nicht lesen, bitte neu schreiben."). Keep the control words OK and CORRECT exactly as written; never translate them. Write "display" in German too: the same message typeset for the side panel, its mathematics as $-LaTeX.';
 
 /**
  * Sends the current page to the model and delivers the verdict.
@@ -343,7 +345,7 @@ export function useFeedback() {
     // guessing at a name the strict schema forces it to emit.
     lines.push(
       '',
-      'In "final", report true exactly when every sub-part visible on the page carries its own marked final result, else false — decided fresh on every scan, whatever the verdict. It is how the app knows the learner has declared the page done. In "display", give the same sentence as "verdict" with its mathematics as compact LaTeX between single $ delimiters — the screen twin of the spoken form; empty for OK and CORRECT.',
+      'In "final", report true exactly when every sub-part visible on the page carries its own marked final result, else false — decided fresh on every scan, whatever the verdict. It is how the app knows the learner has declared the page done. In "display", write the verdict\'s SCREEN version for a side panel with real typesetting room: the same message as "verdict", set properly. Every mathematical expression in LaTeX ($...$ inline; $$...$$ on its own line for the one expression the message centers on), line breaks between statements, at most four short lines. The panel elaborates the TYPESETTING, never the content: "display" must not contain any fact, value, step, or hint the spoken "verdict" does not already carry at the current hint-ladder rung, and never a corrected value or result. When the rung names the violated constraint, the constraint may stand as its own cleanly typeset line. Empty for OK and CORRECT.',
     );
     // The constant language line sits above the history so the growing part stays last.
     if (settings.api.feedbackLang === 'German') lines.push('', GERMAN_GRADING);

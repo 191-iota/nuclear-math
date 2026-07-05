@@ -47,9 +47,9 @@ let autoClearTimer: number | undefined;
 // The seam controller (P02): ONE next-up item drawn from a shuffled merge of the first
 // due card and the estimator's weak/fading targets, refreshed at the solved moment and
 // on Clear, the two points where the learner decides what to write next. It lives in
-// the idle footer slot as one declarative line, never a card, never a queue: ignoring
-// it costs nothing. Tapping it materializes the work (a drill call for a skill, the
-// card front for a due lesson), pinned beside the feedback until Clear.
+// the panel's session section as one declarative row, never a card, never a queue:
+// ignoring it costs nothing. Tapping it materializes the work (a drill call for a
+// skill, the card front for a due lesson), pinned in its own panel section until Clear.
 type NextUp =
   | { kind: 'drill'; id: string; label: string; masteryPct: number }
   | { kind: 'due'; lesson: Lesson };
@@ -76,39 +76,30 @@ const nextUpLabel = computed(() => {
     : `next, drill: ${n.label}`;
 });
 
-// The session line: what the day answers back. Counts come from delivered CORRECTs
-// and the estimator's own day bookkeeping, never usage buckets. One line, hard-capped:
-// the rating delta is the only number besides counts, and it never grows a metric.
-const sessionLine = computed(() => {
+// The session rows: what the day answers back, one declarative row each in the panel.
+// Counts come from delivered CORRECTs and the estimator's own day bookkeeping, never
+// usage buckets. Hard-capped: the rating delta is the only number besides counts, and
+// this section never grows a metric, a ratio, or a bar.
+const dayLine = computed(() => {
   const now = nowTick();
-  const parts: string[] = [];
   const day = dayStats(now);
-  if (day.solved > 0) {
-    const capturedToday = lessonStore.lessons.filter(
-      (l) => Math.floor(l.ts / DAY_MS) === Math.floor(now / DAY_MS),
-    ).length;
-    let s = `today: ${day.solved} solved`;
-    if (day.ratingDelta !== null) s += ` · ${day.ratingDelta >= 0 ? '+' : ''}${day.ratingDelta}`;
-    if (capturedToday > 0) s += ` · ${capturedToday} captured`;
-    parts.push(s);
-  }
-  const due = lessonStats(now).due;
-  if (due > 0) parts.push(`${due} ${due === 1 ? 'card' : 'cards'} due`);
-  if (nextUpLabel.value) parts.push(nextUpLabel.value);
-  return parts.join(' · ');
+  if (day.solved === 0) return '';
+  const capturedToday = lessonStore.lessons.filter(
+    (l) => Math.floor(l.ts / DAY_MS) === Math.floor(now / DAY_MS),
+  ).length;
+  let s = `today: ${day.solved} solved`;
+  if (day.ratingDelta !== null) s += ` · ${day.ratingDelta >= 0 ? '+' : ''}${day.ratingDelta}`;
+  if (capturedToday > 0) s += ` · ${capturedToday} captured`;
+  return s;
 });
 
-const idleLine = computed(() => {
-  if (drillBusy.value) return 'Writing the drill…';
-  return sessionLine.value || 'Write on the pad. Feedback appears here.';
+const dueLine = computed(() => {
+  const due = lessonStats(nowTick()).due;
+  return due > 0 ? `${due} ${due === 1 ? 'card' : 'cards'} due` : '';
 });
-
-const canTapNextUp = computed(
-  () => !status.value && !lastFeedback.value && !pinned.value && !!nextUp.value && !drillBusy.value,
-);
 
 async function onNextUpTap() {
-  if (!canTapNextUp.value) return;
+  if (drillBusy.value) return;
   const n = nextUp.value;
   if (!n) return;
   if (n.kind === 'due') {
@@ -534,33 +525,53 @@ const connectionLabel = computed(() => {
     </header>
 
     <main class="stage">
-      <canvas ref="canvasRef" class="pad" />
-      <div v-if="autoClearLeft > 0" class="autoclear" role="status">
-        <span class="ac-dot" />
-        <span class="ac-msg">
-          Solved. Clearing for the next problem in {{ autoClearLeft }}s
-          <template v-if="nextUpLabel"> · {{ nextUpLabel }}</template>
-        </span>
-        <button class="ghost" @click="cancelAutoClear">Keep</button>
+      <div class="padwrap">
+        <canvas ref="canvasRef" class="pad" />
+        <div v-if="autoClearLeft > 0" class="autoclear" role="status">
+          <span class="ac-dot" />
+          <span class="ac-msg">
+            Solved. Clearing for the next problem in {{ autoClearLeft }}s
+            <template v-if="nextUpLabel"> · {{ nextUpLabel }}</template>
+          </span>
+          <button class="ghost" @click="cancelAutoClear">Keep</button>
+        </div>
       </div>
-    </main>
 
-    <footer class="status">
-      <span class="mode">{{ activeMode.label }}</span>
-      <span class="sep">·</span>
-      <!-- Slot priority: verdict / status > (idle) the session line. The pinned next-up
-           problem gets its own span so a scan's feedback never hides the problem the
-           learner is still copying. Verdicts are mandated to be plain speakable prose,
-           but a model that slips in LaTeX anyway should render it, not show raw markup;
-           plain text passes through MathText unchanged. -->
-      <span class="msg" :class="{ tappable: canTapNextUp }" @click="onNextUpTap">
-        <MathText :text="status || lastFeedback || idleLine" />
-      </span>
-      <template v-if="pinned">
-        <span class="sep">·</span>
-        <span class="msg pin"><MathText :text="pinned" /></span>
-      </template>
-    </footer>
+      <!-- The side panel: the verdict's display version with real typesetting room
+           (multi-line, $$-LaTeX), the pinned next-up problem in its own section so a
+           scan's feedback never hides the problem mid-copy, and the session rows.
+           A held correction shows here while its audio waits out the grace window;
+           a glance stays opt-in. -->
+      <aside class="panel">
+        <div class="p-head">{{ activeMode.label }}</div>
+        <section class="p-sec">
+          <div class="p-label">Feedback</div>
+          <div class="p-body">
+            <MathText :text="status || lastFeedback || 'Write on the pad. Feedback appears here.'" />
+          </div>
+        </section>
+        <section v-if="pinned" class="p-sec">
+          <div class="p-label">Problem</div>
+          <div class="p-body"><MathText :text="pinned" /></div>
+        </section>
+        <section class="p-sec">
+          <div class="p-label">Session</div>
+          <div v-if="dayLine" class="p-row">{{ dayLine }}</div>
+          <div v-if="dueLine" class="p-row">{{ dueLine }}</div>
+          <button
+            v-if="nextUpLabel"
+            class="ghost nextup"
+            :disabled="drillBusy"
+            @click="onNextUpTap"
+          >
+            {{ drillBusy ? 'Writing the drill…' : nextUpLabel }}
+          </button>
+          <div v-if="!dayLine && !dueLine && !nextUpLabel" class="p-row muted">
+            Nothing queued. Solve something.
+          </div>
+        </section>
+      </aside>
+    </main>
   </div>
 </template>
 
@@ -602,7 +613,81 @@ const connectionLabel = computed(() => {
   flex: 1;
   padding: 0.8rem;
   min-height: 0;
+  display: flex;
+  gap: 0.8rem;
+}
+
+.padwrap {
+  flex: 1;
+  min-width: 0;
   position: relative;
+}
+
+.panel {
+  width: 340px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.p-head {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.p-sec {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.7rem 0.8rem;
+  flex: none;
+}
+
+.p-label {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-bottom: 0.45rem;
+}
+
+.p-body {
+  font-size: 0.9rem;
+  color: var(--ink);
+  line-height: 1.5;
+}
+
+.p-row {
+  font-size: 0.85rem;
+  color: var(--ink);
+  padding: 0.15rem 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.p-row.muted {
+  color: var(--muted);
+}
+
+.nextup {
+  margin-top: 0.35rem;
+  width: 100%;
+  text-align: left;
+}
+
+@media (max-width: 900px) {
+  .stage {
+    flex-direction: column;
+  }
+
+  .panel {
+    width: auto;
+    max-height: 45%;
+  }
 }
 
 .autoclear {
@@ -644,36 +729,4 @@ const connectionLabel = computed(() => {
   touch-action: none;
 }
 
-.status {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.55rem 0.9rem;
-  border-top: 1px solid var(--border);
-  background: var(--panel);
-  font-size: 0.8rem;
-}
-
-.status .mode {
-  font-family: var(--mono);
-  color: var(--muted);
-}
-
-.status .sep {
-  color: var(--border);
-}
-
-.status .msg {
-  color: var(--ink);
-}
-
-.status .msg.tappable {
-  cursor: pointer;
-  text-decoration: underline dotted;
-  text-underline-offset: 3px;
-}
-
-.status .pin {
-  color: var(--muted);
-}
 </style>
