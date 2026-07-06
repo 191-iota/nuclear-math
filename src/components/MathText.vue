@@ -26,7 +26,25 @@ const html = computed(() => renderMath(props.text ?? ''));
   max-width: 100%;
   overflow-x: auto;
   overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
   vertical-align: middle;
+}
+
+.mathtext :deep(.katex::-webkit-scrollbar),
+.mathtext :deep(.katex-display::-webkit-scrollbar) {
+  height: 4px;
+}
+
+.mathtext :deep(.katex::-webkit-scrollbar-track),
+.mathtext :deep(.katex-display::-webkit-scrollbar-track) {
+  background: transparent;
+}
+
+.mathtext :deep(.katex::-webkit-scrollbar-thumb),
+.mathtext :deep(.katex-display::-webkit-scrollbar-thumb) {
+  background: var(--border);
+  border-radius: 999px;
 }
 
 /* Let long display formulas scroll instead of overflowing the card. */

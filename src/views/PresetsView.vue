@@ -4,6 +4,18 @@ import { settings, resetSettings } from '@/stores/settings';
 import { MODELS, EFFORTS } from '@/models';
 
 const STYLES = ['spoken', 'chime', 'both'];
+
+function resetEngine(): void {
+  if (confirm('Reset all engine settings to their defaults?')) resetSettings();
+}
+
+function deleteMode(id: string, label: string): void {
+  if (confirm(`Delete the "${label}" preset? This cannot be undone.`)) removeMode(id);
+}
+
+function resetPresetList(): void {
+  if (confirm('Reset all presets to their defaults? Custom presets will be deleted.')) resetModes();
+}
 </script>
 
 <template>
@@ -128,7 +140,7 @@ const STYLES = ['spoken', 'chime', 'both'];
               model, so the Usage cost is exact per scan.
             </span>
             <span class="spacer" />
-            <button class="ghost" @click="resetSettings">Reset engine</button>
+            <button class="ghost" @click="resetEngine">Reset engine</button>
           </div>
         </div>
       </details>
@@ -167,7 +179,11 @@ const STYLES = ['spoken', 'chime', 'both'];
           <div class="row" style="margin-top: 0.6rem">
             <span class="muted mono" style="font-size: 0.68rem">{{ mode.id }}</span>
             <span class="spacer" />
-            <button class="ghost danger" :disabled="modes.length <= 1" @click="removeMode(mode.id)">
+            <button
+              class="ghost danger"
+              :disabled="modes.length <= 1"
+              @click="deleteMode(mode.id, mode.label)"
+            >
               Delete
             </button>
           </div>
@@ -176,7 +192,7 @@ const STYLES = ['spoken', 'chime', 'both'];
 
       <div class="row" style="margin-top: 0.7rem">
         <span class="spacer" />
-        <button class="ghost" @click="resetModes">Reset presets to defaults</button>
+        <button class="ghost" @click="resetPresetList">Reset presets to defaults</button>
       </div>
     </div>
   </section>

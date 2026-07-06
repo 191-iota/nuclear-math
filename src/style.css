@@ -96,6 +96,15 @@ button:hover:not(:disabled) {
   border-color: var(--ink);
 }
 
+button:focus-visible,
+select:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
 button:disabled {
   opacity: 0.5;
   cursor: default;
@@ -186,6 +195,12 @@ label {
   padding: 0.55rem 0.9rem;
   border-bottom: 1px solid var(--border);
   background: var(--panel);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.topnav::-webkit-scrollbar {
+  display: none;
 }
 
 .brand {
@@ -203,6 +218,10 @@ label {
   width: 1.2rem;
   height: 1.2rem;
   flex: none;
+}
+
+.brand-wordmark {
+  white-space: nowrap;
 }
 
 .brand-dim {
@@ -244,6 +263,13 @@ label {
   text-align: center;
 }
 
+.brand,
+.tabs,
+.rankchip,
+.theme {
+  flex: none;
+}
+
 /* The held rank, always visible in the nav; click-through to Progress. */
 .rankchip {
   display: inline-flex;
@@ -277,6 +303,26 @@ label {
 .rankchip-r {
   color: var(--gold);
   font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 800px) {
+  .topnav {
+    gap: 0.45rem;
+    padding-inline: 0.65rem;
+  }
+
+  .brand-wordmark,
+  .rankchip-t {
+    display: none;
+  }
+
+  .tabs {
+    gap: 0.2rem;
+  }
+
+  .tab {
+    padding-inline: 0.55rem;
+  }
 }
 
 .content {

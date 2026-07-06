@@ -33,6 +33,7 @@ watch(
 );
 
 const canvasRef = ref<HTMLCanvasElement | null>(null);
+const padwrapRef = ref<HTMLDivElement | null>(null);
 const canvas = useCanvas(canvasRef);
 const feedback = useFeedback();
 
@@ -56,6 +57,7 @@ type NextUp =
 const nextUp = ref<NextUp | null>(null);
 const pinned = ref('');
 const drillBusy = ref(false);
+let drillRequest = 0;
 // Panel dismissals: the pinned problem card closes via its own x, and the session
 // card can be hidden for the rest of this app session (it returns on reload; nothing
 // persisted, a dismissal is a mood, not a setting).
@@ -110,12 +112,19 @@ async function onNextUpTap() {
     // Display-only v1: the card front comes to the pad's edge; grading the re-test in
     // ink is the P03 step and stays in the Lessons tab until then.
     pinned.value = n.lesson.front || n.lesson.mistake || '';
+    nextUp.value = null;
     return;
   }
+  const request = ++drillRequest;
   drillBusy.value = true;
+  if (status.value === 'Drill generation failed.') status.value = '';
   try {
     const d = await generateDrill(n.id, n.masteryPct);
-    if (d) pinned.value = `${d.task} ${d.problem}`.trim();
+    if (request !== drillRequest) return;
+    if (d) {
+      pinned.value = `${d.task} ${d.problem}`.trim();
+      nextUp.value = null;
+    }
     else status.value = 'Drill generation failed.';
   } finally {
     drillBusy.value = false;
@@ -468,7 +477,10 @@ function startFreshPage(wipePin = false) {
   feedback.resetSession();
   lastFeedback.value = '';
   status.value = '';
-  if (wipePin) pinned.value = '';
+  if (wipePin) {
+    drillRequest += 1;
+    pinned.value = '';
+  }
   pickNextUp();
 }
 
@@ -481,6 +493,7 @@ watch(selectedModeId, () => {
   feedback.resetSession();
   lastFeedback.value = '';
   status.value = '';
+  drillRequest += 1;
   pinned.value = '';
   if (canvas.hasContent()) {
     dirty = true;
@@ -489,20 +502,33 @@ watch(selectedModeId, () => {
 });
 
 let resizeObserver: ResizeObserver | undefined;
+let resizeFrame = 0;
+
+function scheduleCanvasResize() {
+  if (resizeFrame) return;
+  resizeFrame = window.requestAnimationFrame(() => {
+    resizeFrame = 0;
+    canvas.resize();
+  });
+}
+
 onMounted(() => {
   pickNextUp();
   canvas.resize();
-  if (canvasRef.value && 'ResizeObserver' in window) {
-    resizeObserver = new ResizeObserver(() => canvas.resize());
-    resizeObserver.observe(canvasRef.value);
+  if (padwrapRef.value && 'ResizeObserver' in window) {
+    // Observe the stable container. Observing the canvas itself while resize() rewrites
+    // its bitmap dimensions creates a ResizeObserver feedback loop in Chromium.
+    resizeObserver = new ResizeObserver(scheduleCanvasResize);
+    resizeObserver.observe(padwrapRef.value);
   } else {
-    window.addEventListener('resize', canvas.resize);
+    window.addEventListener('resize', scheduleCanvasResize);
   }
 });
 
 onBeforeUnmount(() => {
   resizeObserver?.disconnect();
-  window.removeEventListener('resize', canvas.resize);
+  window.removeEventListener('resize', scheduleCanvasResize);
+  if (resizeFrame) window.cancelAnimationFrame(resizeFrame);
   if (debounceTimer) window.clearTimeout(debounceTimer);
   if (flushTimer) window.clearTimeout(flushTimer);
   if (holdTimer) window.clearTimeout(holdTimer);
@@ -529,12 +555,14 @@ const connectionLabel = computed(() => {
       </select>
       <button title="Wipe the pad and start a new problem" @click="startFreshPage(true)">Clear</button>
       <span class="spacer" />
-      <span class="conn" :class="{ on: pen.state.connected }">{{ connectionLabel }}</span>
+      <span class="conn" :class="{ on: pen.state.connected }" role="status" aria-live="polite">
+        {{ connectionLabel }}
+      </span>
     </header>
 
     <main class="stage">
-      <div class="padwrap">
-        <canvas ref="canvasRef" class="pad" />
+      <div ref="padwrapRef" class="padwrap">
+        <canvas ref="canvasRef" class="pad" role="img" aria-label="Live pen strokes" />
         <div v-if="autoClearLeft > 0" class="autoclear" role="status">
           <span class="ac-dot" />
           <span class="ac-msg">
@@ -554,7 +582,7 @@ const connectionLabel = computed(() => {
         <div class="p-head">{{ activeMode.label }}</div>
         <section class="p-sec">
           <div class="p-label">Feedback</div>
-          <div class="p-body">
+          <div class="p-body" role="status" aria-live="polite">
             <MathText :text="status || lastFeedback || 'Write on the pad. Feedback appears here.'" />
           </div>
         </section>
@@ -576,6 +604,7 @@ const connectionLabel = computed(() => {
             v-if="nextUpLabel"
             class="ghost nextup"
             :disabled="drillBusy"
+            :aria-busy="drillBusy"
             @click="onNextUpTap"
           >
             <template v-if="drillBusy">Writing the drill…</template>
@@ -680,7 +709,10 @@ const connectionLabel = computed(() => {
   color: var(--muted);
   font-size: 0.95rem;
   line-height: 1;
-  padding: 0 0.15rem;
+  width: 1.6rem;
+  height: 1.6rem;
+  padding: 0;
+  margin: -0.35rem -0.35rem -0.35rem 0;
   cursor: pointer;
 }
 

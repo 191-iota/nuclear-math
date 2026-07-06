@@ -39,14 +39,15 @@ const hasRank = computed(() => Object.values(skillStore.kcs).some((k) => k.n > 0
           <path d="M17.58 56.00A28 28 0 0 1 4.00 32.49L22.00 32.17A10 10 0 0 0 26.85 40.57Z" fill="currentColor" />
           <circle cx="32" cy="32" r="4.6" fill="var(--gold)" />
         </svg>
-        nuclear<span class="brand-dim">·math</span>
+        <span class="brand-wordmark">nuclear<span class="brand-dim">·math</span></span>
       </span>
-      <nav class="tabs">
+      <nav class="tabs" aria-label="Primary">
         <button
           v-for="t in tabs"
           :key="t.id"
           class="tab"
           :class="{ active: view === t.id }"
+          :aria-current="view === t.id ? 'page' : undefined"
           @click="view = t.id"
         >
           {{ t.label }}<span v-if="t.id === 'lessons' && dueCount > 0" class="tab-badge">{{
@@ -58,7 +59,8 @@ const hasRank = computed(() => Object.values(skillStore.kcs).some((k) => k.n > 0
       <button
         v-if="hasRank"
         class="rankchip"
-        :title="`Rank ${rank.rank.n} — ${rank.rank.anchor}`"
+        :title="`Rank ${rank.rank.n} · ${rank.rank.anchor}`"
+        :aria-label="`Open progress: ${rank.rank.title}, rating ${rank.rating?.value ?? 'provisional'}`"
         @click="view = 'progress'"
       >
         <span class="rankchip-n">{{ rank.rank.n }}</span>
@@ -68,9 +70,10 @@ const hasRank = computed(() => Object.values(skillStore.kcs).some((k) => k.n > 0
       <button
         class="theme"
         :title="theme === 'dark' ? 'Switch to light' : 'Switch to dark'"
+        :aria-label="theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'"
         @click="toggleTheme"
       >
-        {{ theme === 'dark' ? '☾' : '☀' }}
+        {{ theme === 'dark' ? '☀' : '☾' }}
       </button>
     </header>
 

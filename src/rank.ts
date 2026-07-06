@@ -76,15 +76,15 @@ export interface RankDef {
 // bar through the band starts empty.
 export const RANKS: RankDef[] = [
   { n: 1, title: 'Sek Student', anchor: 'Sek-level algebra and geometry taking shape', minRating: 400 },
-  { n: 2, title: 'HF Student', anchor: 'applied, job-anchored math — algebra, linear systems, functions from the graph', minRating: 1150 },
+  { n: 2, title: 'HF Student', anchor: 'applied, job-anchored math: algebra, linear systems, functions from the graph', minRating: 1150 },
   { n: 3, title: 'BM Student', anchor: 'the BM core: functions, equations, vector geometry, stochastics', minRating: 1500 },
   { n: 4, title: 'FH Student', anchor: 'functioning in applied first-year Analysis and lineare Algebra', minRating: 1700 },
-  { n: 5, title: 'Strong FH Student', anchor: 'top of the FH cohort — Passerelle-pass capable', minRating: 1950 },
+  { n: 5, title: 'Strong FH Student', anchor: 'top of the FH cohort, Passerelle-pass capable', minRating: 1950 },
   { n: 6, title: 'Poly Student', anchor: 'surviving a math-weighted Basisjahr', minRating: 2150 },
   { n: 7, title: 'Strong Poly Student', anchor: 'clearing the Basisprüfung with room to spare', minRating: 2300 },
-  { n: 8, title: 'Transcendent', anchor: 'past the school ladder — the mountain proper begins', minRating: 2400 },
+  { n: 8, title: 'Transcendent', anchor: 'past the school ladder, the mountain proper begins', minRating: 2400 },
   { n: 9, title: 'Poly Bachelor', anchor: 'proof-based Analysis and Algebra held under exam pressure', minRating: 2800 },
-  { n: 10, title: 'Poly Master', anchor: "master's-gate maturity — admitted with nothing left to prove", minRating: 3200 },
+  { n: 10, title: 'Poly Master', anchor: "master's-gate maturity, admitted with nothing left to prove", minRating: 3200 },
 ];
 
 export function rankForRating(r: number): RankDef {
@@ -166,7 +166,7 @@ export function rankView(now = Date.now()): RankView {
     nextProgress = Math.round(
       (100 * Math.min(span, Math.max(0, r.value - held.minRating))) / span,
     );
-    nextStep = `${next.minRating - r.value} rating to go — beat problems at your level or above`;
+    nextStep = `${next.minRating - r.value} rating to go. Beat problems at your level or above.`;
   } else if (!r && next) {
     nextStep = 'solve a few problems to get rated';
   }

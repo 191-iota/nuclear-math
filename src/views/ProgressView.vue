@@ -169,13 +169,13 @@ function reset() {
           <button class="ghost" :disabled="drillBusy" @click="makeDrill()">
             {{ drillBusy ? 'Writing…' : drill ? 'Another one' : 'Drill one' }}
           </button>
-          <span v-if="drillError" class="muted small">couldn't write one — check the key / network</span>
+          <span v-if="drillError" class="muted small">Could not write one. Check the key or network.</span>
         </div>
         <div v-if="drill" class="drill-problem">
           <div class="drill-task mono">{{ drill.task }} <span class="muted">· {{ drill.skillLabel }}</span></div>
           <MathText :text="drill.problem" class="drill-math" />
           <div class="muted small" style="margin-top: 0.3rem">
-            Copy it onto the pad — grading picks it up like any problem.
+            Copy it onto the pad. Grading picks it up like any problem.
           </div>
         </div>
       </div>
@@ -190,13 +190,13 @@ function reset() {
           </div>
         </div>
         <div class="muted small" style="margin-top: 0.55rem">
-          Fixing a weak spot is also the cheapest rating you'll ever gain.
+          Drills start with the weakest or stalest skill.
         </div>
       </div>
     </template>
 
     <div v-else class="empty">
-      No solved problems yet. Work problems on the Pad — after a handful you get a rating, and your
+      No solved problems yet. Work problems on the Pad. After a handful you get a rating, and your
       curve and weak spots build from there.
     </div>
   </section>

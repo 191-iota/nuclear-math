@@ -36,6 +36,10 @@ function clearAll() {
   }
 }
 
+function remove(l: Lesson) {
+  if (confirm('Remove this lesson? This cannot be undone.')) removeLesson(l.id);
+}
+
 // Review session, active recall over the due cards: show the problem, you try to
 // recall the slip, then reveal and grade. Spaced repetition schedules the rest.
 const queue = ref<Lesson[]>([]);
@@ -210,7 +214,9 @@ function statusLabel(l: Lesson): string {
           <span class="badge mono" :class="{ mastered: l.box >= MAX_BOX, due: l.due <= nowTick() }">
             {{ statusLabel(l) }}
           </span>
-          <button class="x" title="Remove" @click="removeLesson(l.id)">×</button>
+          <button class="x" title="Remove" :aria-label="`Remove lesson: ${l.problem || l.mistake}`" @click="remove(l)">
+            ×
+          </button>
         </div>
       </div>
     </template>

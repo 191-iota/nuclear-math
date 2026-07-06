@@ -1,6 +1,14 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { perProblemBars, usageSummary, byRole, byModel, clearUsage, type ProblemBar } from '@/stores/usage';
+import {
+  usage,
+  perProblemBars,
+  usageSummary,
+  byRole,
+  byModel,
+  clearUsage,
+  type ProblemBar,
+} from '@/stores/usage';
 
 type Metric = 'cost' | 'tokens';
 const metric = ref<Metric>('cost');
@@ -15,6 +23,7 @@ const bars = computed(() => perProblemBars(48));
 const grouped = computed(() => bars.value.some((b) => b.problems > 1));
 const roles = computed(() => byRole());
 const models = computed(() => byModel());
+const hasRecords = computed(() => usage.records.length > 0);
 
 const maxVal = computed(() =>
   Math.max(
@@ -51,6 +60,12 @@ function barRange(s: ProblemBar): string {
 function tip(s: ProblemBar): string {
   return `${barRange(s)} · ${s.scans} scans\n${tok(s.input)} in · ${tok(s.output)} out · ${usd(s.costUSD)}`;
 }
+
+function clearLog(): void {
+  if (hasRecords.value && confirm(`Delete all ${usage.records.length} usage records? This cannot be undone.`)) {
+    clearUsage();
+  }
+}
 // Under-bar numbers: label every column when they are single problems and few enough to
 // read, otherwise anchor just the first and last so the axis stays clean.
 function barLabel(s: ProblemBar, i: number): string {
@@ -67,7 +82,7 @@ function barLabel(s: ProblemBar, i: number): string {
       <h2>Usage</h2>
       <span class="muted mono" style="font-size: 0.72rem">estimated, priced per model</span>
       <span class="spacer" />
-      <button class="ghost danger" @click="clearUsage">Clear log</button>
+      <button class="ghost danger" :disabled="!hasRecords" @click="clearLog">Clear log</button>
     </div>
 
     <template v-if="summary.scans > 0">
@@ -129,8 +144,22 @@ function barLabel(s: ProblemBar, i: number): string {
           >
           <span class="spacer" />
           <div class="tabs">
-            <button class="tab" :class="{ active: metric === 'cost' }" @click="metric = 'cost'">Cost</button>
-            <button class="tab" :class="{ active: metric === 'tokens' }" @click="metric = 'tokens'">Tokens</button>
+            <button
+              class="tab"
+              :class="{ active: metric === 'cost' }"
+              :aria-pressed="metric === 'cost'"
+              @click="metric = 'cost'"
+            >
+              Cost
+            </button>
+            <button
+              class="tab"
+              :class="{ active: metric === 'tokens' }"
+              :aria-pressed="metric === 'tokens'"
+              @click="metric = 'tokens'"
+            >
+              Tokens
+            </button>
           </div>
         </div>
         <div class="chart">
@@ -149,16 +178,10 @@ function barLabel(s: ProblemBar, i: number): string {
         </div>
       </div>
 
-      <p class="muted" style="font-size: 0.72rem; margin-top: 0.8rem">
-        Each bar is one Clear-to-Clear problem, split into the input it sent and the output it got
-        back, priced from each model's pinned rates (cached prompt reads at the discounted rate), so
-        changing a model re-prices history instantly.
-        Once you have done more problems than fit across the chart, neighbouring problems are grouped
-        into one bar so it keeps its width and shape however long you use it, and the lifetime totals
-        stay in the cards above. A strong model solves and signs off while a cheaper one runs the
-        repetitive middle checks. Solve and confirm also carry the skill tagging that feeds Progress, so
-        it rides those rows rather than adding its own; lesson cards are the one separate call, on
-        GPT-5.4 mini, written once per mistake you fix.
+      <p class="usage-note muted">
+        Each bar covers one Clear-to-Clear problem and splits input from output. Long histories group
+        neighbouring problems to keep the chart readable. Costs use the pinned model rates, including
+        discounted cached input.
       </p>
     </template>
 
@@ -219,5 +242,12 @@ function barLabel(s: ProblemBar, i: number): string {
   text-align: right;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+}
+
+.usage-note {
+  max-width: 72rem;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  margin: 0.8rem 0 0;
 }
 </style>
